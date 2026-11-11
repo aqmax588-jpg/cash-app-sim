@@ -1,252 +1,167 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#00D54B">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#00D54F">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>Cash App</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
-html,body{background:#0d0d0d;color:#fff;min-height:100vh;}
-.wrap{max-width:600px;margin:0 auto;padding:18px;}
-.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
-.balance-card{background:#171717;border:1px solid #242424;border-radius:16px;padding:20px;margin-bottom:18px;}
-.balance-card .label{font-size:13px;color:#aaa;}
-.balance-card .val{font-size:26px;font-weight:700;margin-top:4px;}
-.panel{background:#171717;border:1px solid #242424;border-radius:16px;padding:18px;margin-bottom:16px;}
-.panel h2{font-size:15px;margin-bottom:12px;color:#eee;}
-.field{margin-bottom:12px;}
-.field input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff;font-size:14px;outline:none;}
-.field input::placeholder{color:#555;}
-button{padding:11px 16px;border:none;border-radius:10px;background:#00d54b;color:#000;font-weight:700;font-size:14px;cursor:pointer;}
-button:active{background:#00b840;}
-button.gray{background:#2a2a2a;color:#ddd;}
-.user-item{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #242424;}
-.avatar{width:40px;height:40px;border-radius:50%;background:#00d54b;color:#000;font-weight:bold;display:flex;align-items:center;justify-content:center;overflow:hidden;}
-.avatar img{width:100%;height:100%;object-fit:cover;}
-.info{flex:1;}
-.info .name{font-weight:600;font-size:14px;}
-.info .id{font-size:12px;color:#888;}
-.msg{font-size:13px;margin-top:8px;min-height:18px;}
-.msg.err{color:#ff6b6b;}
-.msg.ok{color:#00d54b;}
-.logout{color:#ff6b6b;font-size:13px;cursor:pointer;}
-.list-wrap{max-height:280px;overflow:auto;}
-.record-row{padding:10px 0;border-bottom:1px solid #242424;font-size:13px;}
-</style>
+<link rel="stylesheet" href="style.css">
+    <style>
+    input::-webkit-contacts-auto-fill-button {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+  </style>
 </head>
 <body>
-<div class="wrap">
-  <div id="loadingView">
-    <div class="panel">
-      <div>正在自动登录...</div>
+<!-- ================= 主页（绿色） ================= -->
+<div class="home-screen" id="homeScreen">
+  <div class="topbar">
+    <div class="brand-logo" aria-label="Cash App">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#00D54F" stroke-width="2.2" stroke-linecap="round">
+        <line x1="12" y1="3.5" x2="12" y2="20.5" />
+        <path d="M16.6 7.8c-1-1.3-2.6-2-4.6-2-2.6 0-4.4 1.4-4.4 3.4 0 2 1.6 2.8 4.6 3.4 3 .6 4.6 1.4 4.6 3.4 0 2-1.8 3.4-4.6 3.4-2.2 0-4-.9-5-2.3" />
+      </svg>
     </div>
+    <div class="avatar-btn" id="topAvatar">R</div>
   </div>
-
-  <div id="mainView" style="display:none;">
-    <div class="header">
-      <div></div>
-      <div class="logout" onclick="doLogout()">退出登录</div>
-    </div>
-
-    <div class="balance-card">
-      <div class="label">可用余额</div>
-      <div class="val" id="balanceText">$0.00</div>
-    </div>
-
-    <div class="panel">
-      <h2>搜索用户</h2>
-      <div class="field">
-        <input id="searchInput" placeholder="输入Cash ID" />
-      </div>
-      <button onclick="searchUser()">搜索</button>
-      <div id="searchResult"></div>
-    </div>
-
-    <div class="panel">
-      <h2>转账付款</h2>
-      <div class="field">
-        <input id="payTarget" placeholder="收款方Cash ID">
-      </div>
-      <div class="field">
-        <input id="payAmount" type="number" placeholder="转账金额">
-      </div>
-      <div class="field">
-        <input id="payRemark" placeholder="备注（选填）">
-      </div>
-      <button onclick="sendPay()">确认转账</button>
-      <div class="msg" id="payMsg"></div>
-    </div>
-
-    <div class="panel">
-      <h2>交易流水</h2>
-      <div class="list-wrap" id="recordWrap"></div>
+  <div class="amount-wrap">
+    <div class="amount" id="amountText">$0</div>
+  </div>
+  <div class="quick-row">
+    <button class="quick-btn" type="button">Pool</button>
+    <button class="quick-btn" type="button">Request</button>
+  </div>
+  <div class="numkeypad" id="numkeypad">
+    <button class="numkey" type="button" data-key="1">1</button>
+    <button class="numkey" type="button" data-key="2">2</button>
+    <button class="numkey" type="button" data-key="3">3</button>
+    <button class="numkey" type="button" data-key="4">4</button>
+    <button class="numkey" type="button" data-key="5">5</button>
+    <button class="numkey" type="button" data-key="6">6</button>
+    <button class="numkey" type="button" data-key="7">7</button>
+    <button class="numkey" type="button" data-key="8">8</button>
+    <button class="numkey" type="button" data-key="9">9</button>
+    <button class="numkey" type="button" data-key=".">.</button>
+    <button class="numkey" type="button" data-key="0">0</button>
+    <button class="numkey del" type="button" data-key="del">⌫</button>
+  </div>
+  <button class="pay-entry" type="button" id="payEntry">Pay</button>
+  <div class="tabbar">
+    <div class="tab-balance" id="tabBalance">$0.00</div>
+    <div class="tab-icons">
+      <span class="ti ti-card">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <rect x="2.6" y="5.6" width="18.8" height="12.8" rx="2.6" />
+          <line x1="2.6" y1="10" x2="21.4" y2="10" />
+        </svg>
+      </span>
+      <span class="ti ti-dollar">$</span>
+      <span class="ti ti-search">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <circle cx="10.6" cy="10.6" r="6.1" />
+          <line x1="15.2" y1="15.2" x2="20.2" y2="20.2" />
+        </svg>
+      </span>
+      <span class="ti ti-clock">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <circle cx="12" cy="12" r="8.6" />
+          <polyline points="12,7.2 12,12.2 15.8,14.2" />
+        </svg>
+      </span>
     </div>
   </div>
 </div>
-
-<script>
-const API = "/api";
-let uid = null;
-let clientId = null;
-
-window.onload = async function(){
-  uid = localStorage.getItem("loginUid");
-  clientId = localStorage.getItem("clientId");
-  if(!uid||!clientId){
-    goLogin();
-    return;
-  }
-  await autoCheckLogin();
-};
-
-async function autoCheckLogin(){
-  try{
-    const kickRes = await fetch(API+"/user/check-kick",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({uid,clientId})
-    });
-    const kickData = await kickRes.json();
-    if(kickData.kicked){
-      clearLocalAuth();
-      goLogin();
-      return;
-    }
-
-    const infoRes = await fetch(API+"/user/info",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({uid,clientId})
-    });
-    const infoData = await infoRes.json();
-    if(!infoData.ok){
-      clearLocalAuth();
-      goLogin();
-      return;
-    }
-    renderUserInfo(infoData.user);
-    document.getElementById("loadingView").style.display="none";
-    document.getElementById("mainView").style.display="block";
-    loadRecords();
-  }catch(e){
-    clearLocalAuth();
-    goLogin();
-  }
-}
-
-function renderUserInfo(u){
-  document.getElementById("balanceText").textContent = "$"+Number(u.balance).toLocaleString("en-US");
-}
-
-function clearLocalAuth(){
-  localStorage.removeItem("loginUid");
-  localStorage.removeItem("clientId");
-}
-
-function goLogin(){
-  window.location.href="/";
-}
-
-function doLogout(){
-  clearLocalAuth();
-  goLogin();
-}
-
-async function searchUser(){
-  const keyword = document.getElementById("searchInput").value.trim();
-  const resWrap = document.getElementById("searchResult");
-  resWrap.innerHTML="";
-  if(!keyword)return;
-  try{
-    const res = await fetch(API+"/user/lookup/"+encodeURIComponent(keyword));
-    const data = await res.json();
-    if(!data.ok){
-      resWrap.innerHTML='<div class="msg err">未找到用户</div>';
-      return;
-    }
-    const u = data.user;
-    let avatarHtml = "";
-    if(u.avatar){
-      avatarHtml = `<div class="avatar"><img src="${u.avatar}" onerror="this.parentNode.innerHTML='${(u.uid||'').charAt(0).toUpperCase()}'"></div>`;
-    }else{
-      avatarHtml = `<div class="avatar">${(u.uid||'').charAt(0).toUpperCase()}</div>`;
-    }
-    resWrap.innerHTML = `
-      <div class="user-item">
-        ${avatarHtml}
-        <div class="info">
-          <div class="name">${u.nickname||u.uid}</div>
-          <div class="id">@${u.uid}</div>
-        </div>
-      </div>
-    `;
-    document.getElementById("payTarget").value = u.uid;
-  }catch(e){
-    resWrap.innerHTML='<div class="msg err">搜索失败</div>';
-  }
-}
-
-async function sendPay(){
-  const targetUid = document.getElementById("payTarget").value.trim();
-  const amount = document.getElementById("payAmount").value.trim();
-  const remark = document.getElementById("payRemark").value.trim();
-  const msgBox = document.getElementById("payMsg");
-  msgBox.className="msg";
-  msgBox.innerText="";
-  if(!targetUid||!amount){
-    msgBox.className="msg err";
-    msgBox.innerText="收款ID和金额必填";
-    return;
-  }
-  try{
-    const res = await fetch(API+"/user/pay",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({uid,clientId,amount,remark,targetUid})
-    });
-    const data = await res.json();
-    if(!data.ok){
-      msgBox.className="msg err";
-      msgBox.innerText=data.msg;
-      return;
-    }
-    msgBox.className="msg ok";
-    msgBox.innerText="转账成功";
-    document.getElementById("payAmount").value="";
-    document.getElementById("payRemark").value="";
-    renderUserInfo({balance:data.balance});
-    loadRecords();
-  }catch(e){
-    msgBox.className="msg err";
-    msgBox.innerText="转账网络异常";
-  }
-}
-
-async function loadRecords(){
-  const wrap = document.getElementById("recordWrap");
-  try{
-    const res = await fetch(API+"/user/records/"+encodeURIComponent(uid));
-    const data = await res.json();
-    const list = data.list||[];
-    if(list.length===0){
-      wrap.innerHTML='<div class="msg">暂无交易记录</div>';
-      return;
-    }
-    let html="";
-    list.forEach(r=>{
-      html += `
-      <div class="record-row">
-        <div>${r.time}</div>
-        <div>金额：$${Number(r.amount).toLocaleString("en-US")}｜备注：${r.remark||"-"}</div>
-      </div>
-      `;
-    });
-    wrap.innerHTML = html;
-  }catch(e){
-    wrap.innerHTML='<div class="msg err">读取流水失败</div>';
-  }
-}
-</script>
+<!-- ================= 弹窗层 ================= -->
+<div class="sheet-layer" id="sheetLayer">
+  <!-- 搜索弹窗 -->
+  <div class="sheet" id="searchSheet">
+    <div class="sheet-head">
+      <button class="icon-btn" type="button" id="closeSearch">✕</button>
+    </div>
+    <h2 class="sheet-title" id="searchTitle">Pay $0</h2>
+    <div class="pay-to" id="searchPayTo">Pay 0 to</div>
+    <div class="search-box" id="searchBox">
+      <span class="search-ico">⌕</span>
+      <input class="search-field" id="searchInput" type="text" placeholder="$Cashtag" autocomplete="off" autocorrect="off" autocapitalize="none">
+      <button class="search-clear" type="button" id="searchClear">✕</button>
+    </div>
+    <div class="results-head" id="resultsHead">RESULTS</div>
+    <div class="results-list" id="resultsList"></div>
+  </div>
+  <!-- 备注弹窗 -->
+  <div class="sheet" id="noteSheet">
+    <div class="sheet-head">
+      <button class="icon-btn" type="button" id="noteBack">←</button>
+    </div>
+    <div class="pay-to" id="notePayTo">Pay 0 to</div>
+    <div class="target-row">
+      <div class="avatar" id="noteAvatar">R</div>
+      <div class="target-name" id="noteName">rose</div>
+    </div>
+    <input class="note-field" id="noteInput" type="text" placeholder="Add a note" autocomplete="off" autocorrect="off" autocapitalize="none">
+    <button class="continue-btn" type="button" id="continueBtn" disabled>Continue</button>
+  </div>
+  <!-- 确认支付弹窗 -->
+  <div class="sheet" id="confirmSheet">
+    <div class="pay-to" id="confirmPayTo">Pay 0 to</div>
+    <div class="target-row">
+      <div class="avatar" id="confirmAvatar">R</div>
+      <div class="target-name" id="confirmName">rose</div>
+    </div>
+    <div class="note-show" id="confirmNote">BLESS</div>
+    <button class="style-btn" type="button" id="styleBtn">+ Style it</button>
+    <div class="balance-line">
+      <span class="cash-dot">$</span>
+      <span>Cash balance <b id="balanceText">$0.00</b></span>
+    </div>
+    <div class="warn-text">Payments can't be canceled once they're sent.</div>
+    <button class="confirm-pay-btn" type="button" id="confirmPay">Pay</button>
+  </div>
+  <!-- 加载弹窗 -->
+  <div class="sheet sheet-loading" id="loadingSheet">
+    <div class="spinner"></div>
+  </div>
+</div>
+<!-- ================= 成功页 ================= -->
+<div class="success-screen" id="successScreen">
+  <div class="success-check">✓</div>
+  <div class="success-text" id="successText">You sent $0.00 to rose</div>
+  <div class="success-actions">
+    <button class="btn-receipt" type="button" id="receiptBtn">Receipt</button>
+    <button class="btn-done" type="button" id="doneBtn">Done</button>
+  </div>
+</div>
+<!-- ================= 顶部通知（独立计时 2 秒） ================= -->
+<div class="toast" id="toast">
+  <div class="toast-icon">$</div>
+  <div class="toast-content-wrap">
+    <div class="toast-top">
+      <span class="toast-app">Cash App</span>
+      <span class="toast-time">now</span>
+    </div>
+    <div class="toast-body" id="toastBody">You paid rose $0.00</div>
+  </div>
+</div>
+<!-- ================= 自定义 QWERTY 键盘 ================= -->
+<div class="soft-kb" id="softKb"></div>
+<!-- ================= 余额不足提示 ================= -->
+<div class="alert-mask" id="alertMask">
+  <div class="alert-box">
+    <div class="alert-title">Insufficient balance</div>
+    <div class="alert-desc">You don't have enough balance to complete this payment.</div>
+    <button type="button" id="alertOk">OK</button>
+  </div>
+</div>
+<!-- ================= 被踢下线提示 ================= -->
+<div class="alert-mask" id="kickMask">
+  <div class="alert-box">
+    <div class="alert-title">Signed out</div>
+    <div class="alert-desc">Your account was signed in on another device.</div>
+    <button type="button" id="kickOk">OK</button>
+  </div>
+</div>
+<script src="script.js"></script>
 </body>
 </html>
