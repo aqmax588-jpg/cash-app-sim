@@ -1,9 +1,6 @@
 /* =========================================================
-Cash App Simulator｜最终整合修复版
-- 点开Pay立刻展示历史，无跳跃闪现
-- 用户资料本地缓存12小时，减少真实API请求，防风控
-- 搜索新ID才请求外部接口，真实/兜底demo全部缓存
-- 修复支付乱扣余额、全部已知bug
+Cash App Simulator｜BUG修复完整版
+修复：搜索无兜底、真实头像不加载、历史被兜底覆盖、新输入无法选中
 ========================================================= */
 (function () {
   'use strict';
@@ -12,17 +9,17 @@ Cash App Simulator｜最终整合修复版
   var uid = localStorage.getItem('uid') || '';
   var clientId = localStorage.getItem('clientId') || '';
 
-  // 用户自己的搜索历史ID列表缓存
+  // 历史ID列表缓存
   function getHistoryCache(){
     const str = localStorage.getItem('cash_history_'+uid);
     if(str) return JSON.parse(str);
-    return null;
+    return [];
   }
   function setHistoryCache(arr){
     localStorage.setItem('cash_history_'+uid, JSON.stringify(arr.slice(0,8)));
   }
 
-  // 用户资料缓存：昵称、头像；真实接口返回 / 兜底demo 全部存入，12小时有效期
+  // 用户资料缓存：昵称、头像
   function getUserProfileCache(cashtag){
     const key = 'cash_profile_' + cashtag;
     const raw = localStorage.getItem(key);
@@ -103,10 +100,6 @@ Cash App Simulator｜最终整合修复版
       img.src = user.avatar;
       img.alt = '';
       img.onerror = function () {
-        if (user.avatarFallback && img.src !== user.avatarFallback) {
-          img.src = user.avatarFallback;
-          return;
-        }
         if (img.parentNode) img.parentNode.removeChild(img);
       };
       br.appendChild(img);
@@ -123,10 +116,6 @@ Cash App Simulator｜最终整合修复版
       img.className = 'avatar-img';
       img.src = user.avatar;
       img.onerror = function () {
-        if (user.avatarFallback && img.src !== user.avatarFallback) {
-          img.src = user.avatarFallback;
-          return;
-        }
         if (img.parentNode) img.parentNode.removeChild(img);
       };
       el.appendChild(img);
@@ -150,6 +139,7 @@ Cash App Simulator｜最终整合修复版
     row.addEventListener('click', function () { pickUser(user); });
     return row;
   }
+  // 生成兜底用户，兜底也会缓存
   function makeDemoUser(raw) {
     var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
     if (!name) name = 'user';
@@ -263,18 +253,21 @@ Cash App Simulator｜最终整合修复版
     $('resultsList').innerHTML = '';
   }
 
-  // 打开搜索：优先本地缓存立刻渲染，后台静默同步后端，消除闪现跳动
+  // 加载历史列表
   function loadHistoryList() {
-    console.log('====打开搜索页，优先渲染本地缓存历史====');
+    console.log('====打开搜索页，加载历史====');
     clearResults();
     const localIds = getHistoryCache();
     if(localIds && Array.isArray(localIds) && localIds.length>0){
-      renderLocalHistorySync(localIds);
+      localIds.forEach(id=>{
+        const cached = getUserProfileCache(id);
+        const user = cached ? cached : makeDemoUser(id);
+        $('resultsList').appendChild(makeRow(user));
+      })
     }else{
       renderEmptyState('No recent contacts. Type a $Cashtag to search.');
     }
-
-    // 后台异步同步后端，不阻塞UI
+    //后台同步后端历史
     (async function backgroundSyncHistory(){
       try {
         const url = API + '/user/search-history/' + encodeURIComponent(uid);
@@ -283,66 +276,53 @@ Cash App Simulator｜最终整合修复版
         if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) return;
         setHistoryCache(dataHist.list.slice(0,8));
         clearResults();
-        renderLocalHistorySync(dataHist.list.slice(0,8));
+        dataHist.list.slice(0,8).forEach(id=>{
+          const cached = getUserProfileCache(id);
+          const user = cached ? cached : makeDemoUser(id);
+          $('resultsList').appendChild(makeRow(user));
+        })
       }catch(err){
-        console.log("后台同步历史超时/失败，继续使用本地缓存",err);
+        console.log("后台同步历史超时",err);
       }
     })();
   }
 
-  // 同步渲染：只读取浏览器缓存，不阻塞页面；缺失资料后台悄悄补请求
-  function renderLocalHistorySync(idArr){
-    idArr.forEach(id=>{
-      const cached = getUserProfileCache(id);
-      const user = cached ? cached : makeDemoUser(id);
-      $('resultsList').appendChild(makeRow(user));
-      if(!cached){
-        (async function(){
-          try{
-            const resp = await fetch(API+'/user/lookup/'+encodeURIComponent(id), {signal:AbortSignal.timeout(1800)});
-            const d = await resp.json();
-            if(d && d.ok && d.user){
-              setUserProfileCache(id, d.user);
-            }
-          }catch(e){}
-        })();
-      }
-    });
-  }
-
+  // 【重点修复】搜索逻辑，新输入一定有结果，可点击
   function renderResults() {
     var q = searchStr.trim().replace(/^\$/g, '');
     var seq = ++searchSeq;
     clearResults();
     if (!q) {
-      console.log('输入框为空，加载历史列表');
       loadHistoryList();
       return;
     }
     $('resultsHead').textContent = 'RESULTS';
-    var pendingTimer = setTimeout(function () {
-      if (seq !== searchSeq) return;
-      if ($('resultsList').children.length) return;
-      $('resultsList').appendChild(makeRow(makeDemoUser(q)));
-    }, 120);
+    // 优先读本地缓存
+    const cached = getUserProfileCache(q);
+    if(cached){
+      $('resultsList').appendChild(makeRow(cached));
+      return;
+    }
+    // 请求lookup接口
     fetch(API + '/user/lookup/' + encodeURIComponent(q))
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        clearTimeout(pendingTimer);
         if (seq !== searchSeq) return;
         clearResults();
         if (data && data.ok && data.user) {
           setUserProfileCache(q, data.user);
           $('resultsList').appendChild(makeRow(data.user));
-          return;
+        } else {
+          // 接口失败/查无此人 → 兜底
+          const demo = makeDemoUser(q);
+          $('resultsList').appendChild(makeRow(demo));
         }
-        $('resultsList').appendChild(makeRow(makeDemoUser(q)));
       })
       .catch(function () {
-        clearTimeout(pendingTimer);
         if (seq !== searchSeq) return;
         clearResults();
-        $('resultsList').appendChild(makeRow(makeDemoUser(q)));
+        const demo = makeDemoUser(q);
+        $('resultsList').appendChild(makeRow(demo));
       });
   }
   function pickUser(user) {
@@ -411,9 +391,9 @@ Cash App Simulator｜最终整合修复版
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
   function checkKick() {
-    fetch(API + '/user/check‑kick', {
+    fetch(API + '/user/check-kick', {
       method: 'POST',
-      headers: { 'Content‑Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
@@ -428,7 +408,7 @@ Cash App Simulator｜最终整合修复版
     updateContinue();
     fetch(API + '/user/info', {
       method: 'POST',
-      headers: { 'Content‑Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
@@ -462,7 +442,7 @@ Cash App Simulator｜最终整合修复版
       }
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has‑value');
+      $('searchBox').classList.remove('has-value');
       showSheet('searchSheet');
       loadHistoryList();
     });
@@ -472,7 +452,7 @@ Cash App Simulator｜最终整合修复版
       e.stopPropagation();
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has‑value');
+      $('searchBox').classList.remove('has-value');
       loadHistoryList();
     });
     $('noteInput').addEventListener('click', function () { openKb('note'); });
@@ -514,7 +494,7 @@ Cash App Simulator｜最终整合修复版
       setTimeout(function () {
         fetch(API + '/user/pay', {
           method: 'POST',
-          headers: { 'Content‑Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             uid: uid,
             clientId: clientId,
@@ -574,7 +554,7 @@ Cash App Simulator｜最终整合修复版
       searchStr = '';
       $('noteInput').value = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has‑value');
+      $('searchBox').classList.remove('has-value');
       updateContinue();
       renderAmount();
       renderBalance();
