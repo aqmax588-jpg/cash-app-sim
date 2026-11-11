@@ -1,5 +1,9 @@
 /* =========================================================
-Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功能全部保留
+Cash App Simulator｜最终整合修复版
+- 点开Pay立刻展示历史，无跳跃闪现
+- 用户资料本地缓存12小时，减少真实API请求，防风控
+- 搜索新ID才请求外部接口，真实/兜底demo全部缓存
+- 修复支付乱扣余额、全部已知bug
 ========================================================= */
 (function () {
   'use strict';
@@ -8,6 +12,7 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
   var uid = localStorage.getItem('uid') || '';
   var clientId = localStorage.getItem('clientId') || '';
 
+  // 用户自己的搜索历史ID列表缓存
   function getHistoryCache(){
     const str = localStorage.getItem('cash_history_'+uid);
     if(str) return JSON.parse(str);
@@ -17,10 +22,25 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
     localStorage.setItem('cash_history_'+uid, JSON.stringify(arr.slice(0,8)));
   }
 
+  // 用户资料缓存：昵称、头像；真实接口返回 / 兜底demo 全部存入，12小时有效期
+  function getUserProfileCache(cashtag){
+    const key = 'cash_profile_' + cashtag;
+    const raw = localStorage.getItem(key);
+    if(!raw) return null;
+    const obj = JSON.parse(raw);
+    if(Date.now() - obj.time > 12 * 3600 * 1000) return null;
+    return obj.data;
+  }
+  function setUserProfileCache(cashtag, data){
+    const key = 'cash_profile_' + cashtag;
+    localStorage.setItem(key, JSON.stringify({ data:data, time:Date.now() }));
+  }
+
   if (!uid || !clientId) {
     location.replace('/');
     return;
   }
+
   var balance = 0;
   var myNickname = uid;
   var amountStr = '0';
@@ -133,12 +153,16 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
   function makeDemoUser(raw) {
     var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
     if (!name) name = 'user';
-    return {
+    const cache = getUserProfileCache(name);
+    if(cache) return cache;
+    const demoObj = {
       uid: name,
       nickname: name.charAt(0).toUpperCase() + name.slice(1),
       avatar: '',
       avatarFallback: ''
     };
+    setUserProfileCache(name, demoObj);
+    return demoObj;
   }
   function renderEmptyState(text) {
     var d = document.createElement('div');
@@ -239,52 +263,50 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
     $('resultsList').innerHTML = '';
   }
 
-  async function loadHistoryList() {
-    console.log('==== 打开搜索页，开始加载历史 ====');
+  // 打开搜索：优先本地缓存立刻渲染，后台静默同步后端，消除闪现跳动
+  function loadHistoryList() {
+    console.log('====打开搜索页，优先渲染本地缓存历史====');
     clearResults();
-    const cache = getHistoryCache();
-    if(cache && Array.isArray(cache)){
-      await renderHistory(cache);
-      return;
-    }
-    try {
-      const url = API + '/user/search-history/' + encodeURIComponent(uid);
-      console.log('请求地址：', url);
-      const resHist = await fetch(url);
-      const dataHist = await resHist.json();
-      console.log('history后端返回：', dataHist);
-      if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) {
-        renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-        setHistoryCache([]);
-        return;
-      }
-      setHistoryCache(dataHist.list.slice(0,8));
-      await renderHistory(dataHist.list.slice(0,8));
-    }catch(err){
-      console.error('loadHistoryList 整体报错：',err);
-      clearResults();
+    const localIds = getHistoryCache();
+    if(localIds && Array.isArray(localIds) && localIds.length>0){
+      renderLocalHistorySync(localIds);
+    }else{
       renderEmptyState('No recent contacts. Type a $Cashtag to search.');
     }
+
+    // 后台异步同步后端，不阻塞UI
+    (async function backgroundSyncHistory(){
+      try {
+        const url = API + '/user/search-history/' + encodeURIComponent(uid);
+        const resHist = await fetch(url, {signal:AbortSignal.timeout(3000)});
+        const dataHist = await resHist.json();
+        if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) return;
+        setHistoryCache(dataHist.list.slice(0,8));
+        clearResults();
+        renderLocalHistorySync(dataHist.list.slice(0,8));
+      }catch(err){
+        console.log("后台同步历史超时/失败，继续使用本地缓存",err);
+      }
+    })();
   }
 
-  async function renderHistory(idArr){
-    const userList = [];
-    for(const id of idArr) {
-      try{
-        const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id));
-        const d = await r.json();
-        if(d && d.ok && d.user) {
-          userList.push(d.user);
-        }else{
-          userList.push(makeDemoUser(id));
-        }
-      }catch(e){
-        console.log('lookup单个用户失败',id,e);
-        userList.push(makeDemoUser(id));
+  // 同步渲染：只读取浏览器缓存，不阻塞页面；缺失资料后台悄悄补请求
+  function renderLocalHistorySync(idArr){
+    idArr.forEach(id=>{
+      const cached = getUserProfileCache(id);
+      const user = cached ? cached : makeDemoUser(id);
+      $('resultsList').appendChild(makeRow(user));
+      if(!cached){
+        (async function(){
+          try{
+            const resp = await fetch(API+'/user/lookup/'+encodeURIComponent(id), {signal:AbortSignal.timeout(1800)});
+            const d = await resp.json();
+            if(d && d.ok && d.user){
+              setUserProfileCache(id, d.user);
+            }
+          }catch(e){}
+        })();
       }
-    }
-    userList.forEach(u=>{
-      $('resultsList').appendChild(makeRow(u));
     });
   }
 
@@ -310,6 +332,7 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
         if (seq !== searchSeq) return;
         clearResults();
         if (data && data.ok && data.user) {
+          setUserProfileCache(q, data.user);
           $('resultsList').appendChild(makeRow(data.user));
           return;
         }
@@ -345,13 +368,13 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
     })
     .then(res=>res.json())
     .then(ret=>{
-      console.log("save-search resp",ret);
+      console.log("save‑search resp",ret);
       let cache = getHistoryCache() || [];
       cache = cache.filter(x=>x!==clean);
       cache.unshift(clean);
       setHistoryCache(cache);
     })
-    .catch(err=>{console.error("save-search err",err);});
+    .catch(err=>{console.error("save‑search err",err);});
   }
 
   function pressNum(k) {
@@ -388,9 +411,9 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
   function checkKick() {
-    fetch(API + '/user/check-kick', {
+    fetch(API + '/user/check‑kick', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content‑Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
@@ -405,7 +428,7 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
     updateContinue();
     fetch(API + '/user/info', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content‑Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
@@ -439,7 +462,7 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
       }
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
+      $('searchBox').classList.remove('has‑value');
       showSheet('searchSheet');
       loadHistoryList();
     });
@@ -449,7 +472,7 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
       e.stopPropagation();
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
+      $('searchBox').classList.remove('has‑value');
       loadHistoryList();
     });
     $('noteInput').addEventListener('click', function () { openKb('note'); });
@@ -491,7 +514,7 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
       setTimeout(function () {
         fetch(API + '/user/pay', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content‑Type': 'application/json' },
           body: JSON.stringify({
             uid: uid,
             clientId: clientId,
@@ -551,7 +574,7 @@ Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功�
       searchStr = '';
       $('noteInput').value = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
+      $('searchBox').classList.remove('has‑value');
       updateContinue();
       renderAmount();
       renderBalance();
