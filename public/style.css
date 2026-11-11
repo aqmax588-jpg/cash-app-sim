@@ -887,3 +887,7 @@ input {
     height: 46px;
   }
 }
+#resultsList {
+  max-height: 220px;
+  overflow-y: auto;
+}
