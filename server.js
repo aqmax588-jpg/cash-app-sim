@@ -93,12 +93,18 @@ avatar: avatar,
   }
 }
 
-/* 带缓存 + 一次快速重试。缓存命中直接秒回，不打上游 */
+/* 带缓存 + 一次快速重试 + 同 ID 进行中去重（singleflight）
+   缓存命中直接秒回，不打上游；
+   同一个 tag 正在请求时，后续请求复用同一个 Promise，不会重复打上游（防风控） */
+const inflight = new Map();   // key -> Promise
+
 async function fetchAvatarProfile(rawId) {
   const tag = String(rawId || '').replace(/^\$+/g, '').trim();
   if (!tag) return null;
 
   const key = tag.toLowerCase();
+
+  // 1. 缓存命中直接回
   const hit = profileCache.get(key);
   if (hit) {
     const ttl = hit.fail ? FAIL_CACHE_TTL : PROFILE_CACHE_TTL;
@@ -107,20 +113,35 @@ async function fetchAvatarProfile(rawId) {
     }
   }
 
-  let data = await fetchProfileOnce(tag);
-  if (!data) {
-    // 快速重试一次，间隔压到 150ms，不再干等 800ms
-    await new Promise(function (r) { setTimeout(r, 150); });
-    data = await fetchProfileOnce(tag);
+  // 2. 已经有同 ID 请求在跑，直接复用，绝不重复打上游
+  if (inflight.has(key)) {
+    return inflight.get(key);
   }
 
-  if (data) {
-    profileCache.set(key, { data: data, time: Date.now(), fail: false });
-  } else {
-    // 失败也短缓存，防止重复请求同一个不存在 ID
-    profileCache.set(key, { data: null, time: Date.now(), fail: true });
-}
-  return data;
+  // 3. 真正发请求
+  const task = (async function () {
+    let data = await fetchProfileOnce(tag);
+    if (!data) {
+      // 快速重试一次，间隔压到 150ms
+await new Promise(function (r) { setTimeout(r, 150); });
+      data = await fetchProfileOnce(tag);
+    }
+
+    if (data) {
+      profileCache.set(key, { data: data, time: Date.now(), fail: false });
+    } else {
+      // 失败也短缓存，防止重复请求同一个不存在 ID
+      profileCache.set(key, { data: null, time: Date.now(), fail: true });
+    }
+    return data;
+  })();
+
+  inflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    inflight.delete(key);
+  }
 }
 
 /* ============ 管理员接口 ============ */
@@ -139,7 +160,7 @@ app.post('/api/admin/add-user', (req, res) => {
   }
   if (users.find(u => u.uid === uid)) {
     return res.json({ ok: false, msg: '该用户ID已存在' });
-  }
+}
   const user = {
     uid: String(uid).trim(),
     password: String(password).trim(),
@@ -171,8 +192,7 @@ app.post('/api/admin/set-avatar', async (req, res) => {
 
   const tag = String(cashtag || '').replace(/^\$/, '').trim();
   if (!tag) return res.json({ ok: false, msg: 'cashtag 不能为空' });
-
-  const profile = await fetchAvatarProfile(tag);
+const profile = await fetchAvatarProfile(tag);
   if (!profile) {
     return res.json({ ok: false, msg: '没取到该 cashtag 的头像（接口不通或该账号无头像）' });
   }
@@ -205,7 +225,7 @@ app.post('/api/user/login', (req, res) => {
   }
   // 顶掉上一个会话
   if (sessions[user.uid]) sessions[user.uid].kicked = true;
-  sessions[user.uid] = { clientId, kicked: false };
+sessions[user.uid] = { clientId, kicked: false };
 
   return res.json({
     ok: true,
@@ -220,7 +240,7 @@ app.post('/api/user/login', (req, res) => {
 });
 
 app.post('/api/user/check-kick', (req, res) => {
-const { uid, clientId } = req.body;
+  const { uid, clientId } = req.body;
   const s = sessions[uid];
   if (!s || s.kicked || s.clientId !== clientId) {
     return res.json({ kicked: true });
@@ -243,7 +263,7 @@ app.post('/api/user/info', (req, res) => {
       nickname: user.nickname,
       avatar: user.avatar,
       avatarFallback: user.avatarFallback || '',
-      balance: user.balance
+balance: user.balance
     }
   });
 });
@@ -255,7 +275,7 @@ app.get('/api/user/lookup/:uid', async (req, res) => {
   if (!uid) return res.json({ ok: false, msg: 'No user found' });
 
   // 1. 本站注册用户（真实数据）
-const user = users.find(u => u.uid === uid);
+  const user = users.find(u => u.uid === uid);
   if (user) {
     return res.json({
       ok: true,
@@ -286,7 +306,7 @@ const user = users.find(u => u.uid === uid);
   }
 
   // 3. 兜底（接口不通时不让流程中断，前端不会显示任何 DEMO 标记）
-  return res.json({
+return res.json({
     ok: true,
     source: 'fallback',
     user: {
@@ -301,7 +321,7 @@ const user = users.find(u => u.uid === uid);
 /* 支付 */
 app.post('/api/user/pay', (req, res) => {
   const { uid, clientId, amount, remark, targetUid } = req.body;
-const user = users.find(u => u.uid === uid);
+  const user = users.find(u => u.uid === uid);
   if (!user) return res.json({ ok: false, msg: 'User not found' });
 
   const s = sessions[uid];
@@ -322,7 +342,7 @@ const user = users.find(u => u.uid === uid);
 
   const record = {
     recordId: 'TX' + Date.now() + Math.floor(Math.random() * 1000),
-    time: now(),
+time: now(),
     timestamp: Date.now(),
     uid: user.uid,
     nickname: user.nickname,
@@ -332,7 +352,7 @@ const user = users.find(u => u.uid === uid);
     targetNick: target ? target.nickname : targetUid,
     targetAvatar: target ? target.avatar : '',
     balanceAfter: user.balance
-};
+  };
   records.push(record);
 
   return res.json({
@@ -358,7 +378,7 @@ app.post('/api/user/save-search', (req, res) => {
   searchHistory[uid] = searchHistory[uid].filter(x => x !== searchId);
   searchHistory[uid].unshift(searchId);
   if (searchHistory[uid].length > 8) searchHistory[uid].pop();
-  return res.json({ ok: true });
+return res.json({ ok: true });
 });
 
 app.get('/api/user/search-history/:uid', (req, res) => {
@@ -368,7 +388,7 @@ app.get('/api/user/search-history/:uid', (req, res) => {
 /* ============ 自检接口（部署后先访问这个确认能通） ============ */
 app.get('/api/source-check', async (req, res) => {
   const tag = String(req.query.tag || 'rose').replace(/^\$+/g, '');
-const start = Date.now();
+  const start = Date.now();
   const data = await fetchProfileOnce(tag);
   res.json({
     ok: !!data,
