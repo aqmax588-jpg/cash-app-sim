@@ -213,10 +213,13 @@ app.get('/api/admin/users', async (req, res) => {
   res.setHeader('Pragma','no-cache');
   res.setHeader('Expires','0');
   try {
-    const list = await User.find({});
+    const list = await User.find({}).exec();
+    console.log("==== 查询用户列表 ====")
+    console.log("数量：", list.length)
+    console.log("数据：", list)
     res.json(list);
   } catch (err) {
-    console.error(err);
+    console.error("查询报错：", err);
     res.json([]);
   }
 });
