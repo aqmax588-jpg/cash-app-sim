@@ -98,14 +98,6 @@ button:active {
   min-height: 20px;
   color: #ff6b6b;
 }
-.admin-link {
-  display: block;
-  text-align: center;
-  margin-top: 26px;
-  color: #5a5a5e;
-  font-size: 13px;
-  text-decoration: none;
-}
 </style>
 </head>
 <body>
@@ -113,37 +105,27 @@ button:active {
   <div class="logo">$</div>
   <h2>Sign in to Cash App</h2>
   <div class="subtitle">Use the Cash ID created by admin</div>
-
   <label>Cash ID</label>
   <input id="uid" placeholder="e.g. rose" autocomplete="off">
-
   <label>Password</label>
   <input id="pwd" type="password" placeholder="Your password">
-
   <button onclick="login()">Sign In</button>
   <div class="msg" id="msg"></div>
-
-  <a class="admin-link" href="/admin">Admin panel</a>
 </div>
-
 <script>
 function newClientId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
-
 async function login() {
   const uid = document.getElementById('uid').value.trim();
   const pwd = document.getElementById('pwd').value.trim();
   const msgBox = document.getElementById('msg');
   msgBox.innerText = '';
-
   if (!uid || !pwd) {
     msgBox.innerText = 'Please enter Cash ID and password';
     return;
   }
-
   const clientId = newClientId();
-
   try {
     const res = await fetch('/api/user/login', {
       method: 'POST',
@@ -151,12 +133,10 @@ async function login() {
       body: JSON.stringify({ uid: uid, password: pwd, clientId: clientId })
     });
     const data = await res.json();
-
     if (!data.ok) {
       msgBox.innerText = data.msg || 'Login failed';
       return;
     }
-
     localStorage.setItem('uid', data.user.uid);
     localStorage.setItem('clientId', clientId);
     localStorage.setItem('userInfo', JSON.stringify(data.user));
@@ -165,10 +145,25 @@ async function login() {
     msgBox.innerText = 'Network error, please retry';
   }
 }
-
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Enter') login();
 });
+//页面加载自动登录
+window.addEventListener('DOMContentLoaded',async ()=>{
+  const savedUid = localStorage.getItem('uid');
+  const savedClientId = localStorage.getItem('clientId');
+  if(savedUid && savedClientId){
+    const res = await fetch("/api/user/info",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({uid:savedUid,clientId:savedClientId})
+    })
+    const d = await res.json();
+    if(d.ok){
+      location.href="/cash";
+    }
+  }
+})
 </script>
 </body>
 </html>
