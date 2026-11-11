@@ -1,6 +1,6 @@
 /* =========================================================
-   Cash App Simulator - script.js【彻底移除searchSeq时序bug】
-   移除会拦截渲染的searchSeq，修复：真实/兜底/历史全部空白问题
+   Cash App Simulator【修复自定义键盘字符丢失、搜索竞态bug】
+   关键点：不再用内存searchStr副本，直接读取input真实value；AbortController取消过期请求
    ========================================================= */
 (function () {
   'use strict';
@@ -18,7 +18,6 @@
   var amountStr = '0';
   var targetUser = null;
   var noteStr = '';
-  var searchStr = '';
   var kbOpen = false;
   var kbTarget = null;
   var searchTimer = null;
@@ -26,6 +25,7 @@
   var kickTimer = null;
   var KBH = 248;
   var SHEETS = ['searchSheet', 'noteSheet', 'confirmSheet', 'loadingSheet'];
+  var abortController = null; // 用来取消上一次搜索请求
 
   function money(v) {
     var p = String(v == null ? '0' : v).split('.');
@@ -168,21 +168,32 @@
   function onKbKey(k) {
     if (k === 'ok') { closeKb(); return; }
     if (kbTarget === 'search') {
-      if (k === 'del') searchStr = searchStr.slice(0, -1);
-      else searchStr += (k === 'space' ? ' ' : k);
-      if (searchStr.length > 22) searchStr = searchStr.slice(0, 22);
-      $('searchInput').value = searchStr;
-      $('searchBox').classList.toggle('has-value', searchStr.length > 0);
+      var inputDom = $('searchInput');
+      var val = inputDom.value;
+      if (k === 'del') {
+        val = val.slice(0, -1);
+      } else {
+        if(k === 'space') val += ' ';
+        else val += k;
+        if(val.length>22) val = val.slice(0,22);
+      }
+      inputDom.value = val;
+      $('searchBox').classList.toggle('has-value', val.length > 0);
       scheduleSearch();
       return;
     }
     if (kbTarget === 'note') {
-      if (k === 'del') noteStr = noteStr.slice(0, -1);
-      else {
-        if (noteStr.length >= 24) return;
-        noteStr += (k === 'space' ? ' ' : k);
+      var noteDom = $('noteInput');
+      var val = noteDom.value;
+      if (k === 'del') {
+        val = val.slice(0, -1);
+      } else {
+        if(val.length >=24) return;
+        if(k === 'space') val += ' ';
+        else val += k;
       }
-      $('noteInput').value = noteStr;
+      noteDom.value = val;
+      noteStr = val;
       updateContinue();
     }
   }
@@ -235,11 +246,19 @@
   }
 
   function renderResults() {
-    var q = searchStr.trim().replace(/^\$/g, '');
+    // 每次新搜索，取消上一个还在跑的网络请求
+    if(abortController) abortController.abort();
+    abortController = new AbortController();
+    var signal = abortController.signal;
+
+    // 直接读输入框真实DOM值，不再使用内存变量searchStr！！！
+    var qRaw = $('searchInput').value;
+    var q = qRaw.trim().replace(/^\$/g, '');
     clearResults();
+
     if (!q) {
-      // 输入框空，读取搜索历史
-      fetch(API + '/user/search-history/' + encodeURIComponent(uid))
+      // 输入框为空，拉取搜索历史
+      fetch(API + '/user/search-history/' + encodeURIComponent(uid), {signal:signal})
         .then(r=>r.json())
         .then(data=>{
           clearResults();
@@ -250,27 +269,30 @@
           }
           var idList = data.list.slice(0,8);
           idList.forEach(function(id){
-            fetch(API+'/user/lookup/'+encodeURIComponent(id))
+            fetch(API+'/user/lookup/'+encodeURIComponent(id), {signal:signal})
               .then(r=>r.json())
               .then(d=>{
                 var item = (d && d.ok && d.user) ? d.user : makeDemoUser(id);
                 $('resultsList').appendChild(makeRow(item));
               })
-              .catch(()=>{
-                $('resultsList').appendChild(makeRow(makeDemoUser(id)));
+              .catch((e)=>{
+                if(e.name !== 'AbortError'){
+                  $('resultsList').appendChild(makeRow(makeDemoUser(id)));
+                }
               })
           })
         })
-        .catch(()=>{
-          clearResults();
-          renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+        .catch((e)=>{
+          if(e.name !== 'AbortError'){
+            clearResults();
+            renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+          }
         });
       return;
     }
 
-    // 有搜索关键词，执行lookup
     $('resultsHead').textContent = 'RESULTS';
-    fetch(API + '/user/lookup/' + encodeURIComponent(q))
+    fetch(API + '/user/lookup/' + encodeURIComponent(q), {signal:signal})
       .then(function (r) { return r.json(); })
       .then(function (data) {
         clearResults();
@@ -280,9 +302,11 @@
           $('resultsList').appendChild(makeRow(makeDemoUser(q)));
         }
       })
-      .catch(function () {
-        clearResults();
-        $('resultsList').appendChild(makeRow(makeDemoUser(q)));
+      .catch(function (e) {
+        if(e.name !== 'AbortError'){
+          clearResults();
+          $('resultsList').appendChild(makeRow(makeDemoUser(q)));
+        }
       });
   }
 
@@ -376,7 +400,6 @@
         amountStr = '0';
         renderAmount();
       }
-      searchStr = '';
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
       renderResults();
@@ -386,7 +409,6 @@
     $('searchInput').addEventListener('click', function () { openKb('search'); });
     $('searchClear').addEventListener('click', function (e) {
       e.stopPropagation();
-      searchStr = '';
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
       renderResults();
@@ -485,7 +507,6 @@
       amountStr = '0';
       targetUser = null;
       noteStr = '';
-      searchStr = '';
       $('noteInput').value = '';
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
@@ -501,7 +522,6 @@
     boot();
   });
 
-  // 首页数字键盘点击
   function pressNum(k) {
     if (k === 'del') {
       amountStr = amountStr.length > 1 ? amountStr.slice(0, -1) : '0';
