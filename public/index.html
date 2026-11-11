@@ -71,9 +71,9 @@ async function doLogin(){
       return;
     }
     //登录成功保存本地存储用于cash.html自动登录
-    localStorage.setItem("loginUid",uid);
-    localStorage.setItem("loginClientId",clientId);
-    window.location.href="/cash";
+localStorage.setItem("loginUid",uid);
+localStorage.setItem("clientId",clientId);
+window.location.href="/cash.html";
   }catch(e){
     msgBox.className="msg err";
     msgBox.innerText="网络异常，请重试";
