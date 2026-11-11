@@ -891,3 +891,25 @@ input {
   max-height: 220px;
   overflow-y: auto;
 }
+/* 隐藏历史列表滚动条，手机电脑都无滑块，可正常滑动 */
+#resultsList {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  overflow-y: auto;
+}
+#resultsList::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+#searchSheet .modal-body,
+#searchSheet .sheet-body {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+#searchSheet .modal-body::-webkit-scrollbar,
+#searchSheet .sheet-body::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
