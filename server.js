@@ -208,11 +208,17 @@ app.post('/api/admin/add-user', async (req, res) => {
   return res.json({ ok: true, msg: '添加成功，初始余额 $' + user.balance.toLocaleString(), user });
 });
 
-app.get('/api/admin/users', (req, res) => {
+app.get('/api/admin/users', async (req, res) => {
   res.setHeader('Cache-Control','no-cache, no-store, must-revalidate');
   res.setHeader('Pragma','no-cache');
   res.setHeader('Expires','0');
-  res.json(users);
+  try {
+    const list = await User.find({});
+    res.json(list);
+  } catch (err) {
+    console.error(err);
+    res.json([]);
+  }
 });
 
 app.post('/api/admin/set-balance', async (req, res) => {
