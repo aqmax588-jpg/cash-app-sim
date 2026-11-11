@@ -1,6 +1,6 @@
 /* =========================================================
-Cash App Simulator 【适配MongoDB后端 最终版】
-后端已有完整search‑history存取接口，无需修改server.js
+Cash App Simulator 【适配MongoDB后端 修复数字键盘失灵版】
+后端已有完整search‑history存取接口，server.js不用修改
 ========================================================= */
 (function () {
   'use strict';
@@ -330,7 +330,7 @@ Cash App Simulator 【适配MongoDB后端 最终版】
     if (!clean) return;
     fetch(API + '/user/save-search', {
       method: 'POST',
-      headers: { 'Content‑Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, searchId: clean })
     })
       .then(res => res.json())
@@ -372,9 +372,9 @@ Cash App Simulator 【适配MongoDB后端 最终版】
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
   function checkKick() {
-    fetch(API + '/user/check‑kick', {
+    fetch(API + '/user/check-kick', {
       method: 'POST',
-      headers: { 'Content‑Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
@@ -390,7 +390,7 @@ Cash App Simulator 【适配MongoDB后端 最终版】
     updateContinue();
     fetch(API + '/user/info', {
       method: 'POST',
-      headers: { 'Content‑Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
@@ -410,10 +410,12 @@ Cash App Simulator 【适配MongoDB后端 最终版】
   }
 
   function bind() {
+    // 修复数字键盘点击事件！这里是重点
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
       if (!btn) return;
-      pressNum(btn.getAttribute('data‑key'));
+      var key = btn.dataset.key;
+      pressNum(key);
     });
 
     //Pay按钮：先打开弹窗，直接调用加载历史
@@ -426,7 +428,7 @@ Cash App Simulator 【适配MongoDB后端 最终版】
       }
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has‑value');
+      $('searchBox').classList.remove('has-value');
       showSheet('searchSheet');
       loadHistoryList();
     });
@@ -437,7 +439,7 @@ Cash App Simulator 【适配MongoDB后端 最终版】
       e.stopPropagation();
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has‑value');
+      $('searchBox').classList.remove('has-value');
       loadHistoryList();
     });
     $('noteInput').addEventListener('click', function () { openKb('note'); });
@@ -476,7 +478,7 @@ Cash App Simulator 【适配MongoDB后端 最终版】
       setTimeout(function () {
         fetch(API + '/user/pay', {
           method: 'POST',
-          headers: { 'Content‑Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             uid: uid,
             clientId: clientId,
@@ -538,7 +540,7 @@ Cash App Simulator 【适配MongoDB后端 最终版】
       searchStr = '';
       $('noteInput').value = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has‑value');
+      $('searchBox').classList.remove('has-value');
       updateContinue();
       renderAmount();
       renderBalance();
