@@ -298,7 +298,7 @@
       if (seq !== searchSeq) return;
       if ($('resultsList').children.length) return;
       $('resultsList').appendChild(makeRow(makeDemoUser(q)));
-    }, 700);
+    }, 120);
 
     fetch(API + '/user/lookup/' + encodeURIComponent(q))
       .then(function (r) { return r.json(); })
