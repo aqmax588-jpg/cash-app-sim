@@ -59,11 +59,11 @@ async function doLogin(){
     return;
   }
   try{
-    const res = await fetch(API+"/user/login",{
-      method:"POST",
-      headers:{"Content‑Type":"application/json"},
-      body:JSON.stringify({uid,password:pwd,clientId})
-    });
+   const res = await fetch(API+"/user/login",{
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({uid,password:pwd,clientId})
+});
     const data = await res.json();
     if(!data.ok){
       msgBox.className="msg err";
