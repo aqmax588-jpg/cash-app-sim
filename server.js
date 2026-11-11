@@ -25,7 +25,7 @@ const ADMIN = { username: 'admin', password: 'admin123' };
    2) 或者直接改下面这行默认值，再推 GitHub
    ============================================================ */
 const AVATAR_API_BASE = (process.env.AVATAR_API_BASE || 'https://offset-nominations-reductions-length.trycloudflare.com').replace(/\/+$/, '');
-const AVATAR_API_TIMEOUT = Number(process.env.AVATAR_API_TIMEOUT || 15000);
+const AVATAR_API_TIMEOUT = Number(process.env.AVATAR_API_TIMEOUT || 3000);
 const PROFILE_CACHE_TTL = 10 * 60 * 1000;
 const profileCache = new Map();
 
@@ -48,14 +48,12 @@ const userSchema = new mongoose.Schema({
   activateTime: { type: Date, default: null }, //首次登录激活时间
   expireTime: { type: Date, default: null } //到期时间
 });
-
 //会话模型
 const sessionSchema = new mongoose.Schema({
   uid: {type:String,required:true},
   clientId: String,
   kicked: {type:Boolean,default:false}
 });
-
 //交易流水模型
 const recordSchema = new mongoose.Schema({
   recordId: String,
@@ -70,7 +68,6 @@ const recordSchema = new mongoose.Schema({
   targetAvatar: String,
   balanceAfter: Number
 });
-
 //搜索历史模型
 const searchHistorySchema = new mongoose.Schema({
   uid: {type:String,required:true},
@@ -122,6 +119,7 @@ function toAbsolute(u) {
   if (u.indexOf('//') === 0) return 'https:' + u;
   return AVATAR_API_BASE + '/' + u.replace(/^\/+/, '');
 }
+
 async function fetchProfileOnce(tag) {
   const url = AVATAR_API_BASE + '/api/profile?tag=' + encodeURIComponent(tag);
   const ctrl = new AbortController();
@@ -155,6 +153,7 @@ async function fetchProfileOnce(tag) {
     clearTimeout(timer);
   }
 }
+
 async function fetchAvatarProfile(rawId) {
   const tag = String(rawId || '').replace(/^\$+/g, '').trim();
   if (!tag) return null;
@@ -164,10 +163,6 @@ async function fetchAvatarProfile(rawId) {
     return hit.data;
   }
   let data = await fetchProfileOnce(tag);
-  if (!data) {
-    await new Promise(function (r) { setTimeout(r, 800); });
-    data = await fetchProfileOnce(tag);
-  }
   if (data) profileCache.set(key, { data: data, time: Date.now() });
   return data;
 }
@@ -216,7 +211,6 @@ app.get('/api/admin/users', async (req, res) => {
     const list = await User.find({}).exec();
     console.log("==== 查询用户列表 ====")
     console.log("数量：", list.length)
-    console.log("数据：", list)
     res.json(list);
   } catch (err) {
     console.error("查询报错：", err);
@@ -287,7 +281,6 @@ app.post('/api/user/login', async (req, res) => {
   if (!user) {
     return res.json({ ok: false, msg: '用户不存在或密码错误' });
   }
-
   //首次登录，执行激活
   if(!user.isActivated){
     const nowDate = new Date();
@@ -301,7 +294,6 @@ app.post('/api/user/login', async (req, res) => {
       return res.json({ok:false,msg:"账号已过期，请联系管理员"});
     }
   }
-
   // 顶掉上一个会话
   await Session.updateOne({uid:user.uid},{$set:{kicked:true}});
   await Session.create({
@@ -309,7 +301,6 @@ app.post('/api/user/login', async (req, res) => {
     clientId:clientId,
     kicked:false
   });
-
   return res.json({
     ok: true,
     user: {
@@ -463,7 +454,7 @@ app.post('/api/user/save-search', async (req, res) => {
 });
 
 app.get('/api/user/search-history/:uid', async (req, res) => {
-  const hist = await SearchHistory.findOne({uid:req.params.uid}).lean();
+  const hist = await SearchHistory.findOne({uid}).lean();
   res.json({ ok: true, list: hist ? hist.list : [] });
 });
 
@@ -510,7 +501,6 @@ async function boot(){
     process.exit(1);
   });
 }
-
 boot();
 
 process.on('uncaughtException', function (e) {
