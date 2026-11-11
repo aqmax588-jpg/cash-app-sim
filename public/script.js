@@ -1,6 +1,6 @@
 /* =========================================================
-   Cash App Simulator - script.js (全量版)
-   对接 server.js: /api/user/info /lookup /pay /search-history /check-kick
+   Cash App Simulator - script.js【彻底移除searchSeq时序bug】
+   移除会拦截渲染的searchSeq，修复：真实/兜底/历史全部空白问题
    ========================================================= */
 (function () {
   'use strict';
@@ -12,7 +12,7 @@
     location.replace('/');
     return;
   }
-  /* ---------------- 运行状态 ---------------- */
+
   var balance = 0;
   var myNickname = uid;
   var amountStr = '0';
@@ -21,14 +21,12 @@
   var searchStr = '';
   var kbOpen = false;
   var kbTarget = null;
-  var historyList = [];
-  var searchSeq = 0;
   var searchTimer = null;
   var payBusy = false;
   var kickTimer = null;
   var KBH = 248;
   var SHEETS = ['searchSheet', 'noteSheet', 'confirmSheet', 'loadingSheet'];
-  /* ---------------- 工具 ---------------- */
+
   function money(v) {
     var p = String(v == null ? '0' : v).split('.');
     p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -49,7 +47,7 @@
     var t = String(name || '?').replace(/^\$/g, '').trim();
     return (t.charAt(0) || '?').toUpperCase();
   }
-  /* ---------------- 渲染基础信息 ---------------- */
+
   function renderAmount() {
     $('amountText').textContent = '$' + money(amountStr);
     $('searchTitle').textContent = 'Pay $' + money(amountStr);
@@ -66,7 +64,7 @@
     av.textContent = initial(myNickname);
     av.style.background = colorOf(uid);
   }
-  /* ---------------- 头像组件 ---------------- */
+
   function buildAvatar(user, small) {
     var br = document.createElement('div');
     br.className = 'avatar' + (small ? ' avatar-sm' : '');
@@ -107,7 +105,7 @@
       el.appendChild(img);
     }
   }
-  /* ---------------- 弹窗控制 ---------------- */
+
   function showSheet(name) {
     $('sheetLayer').classList.add('open');
     SHEETS.forEach(function (id) {
@@ -119,7 +117,7 @@
     $('sheetLayer').classList.remove('open');
     SHEETS.forEach(function (id) { $(id).classList.remove('open'); });
   }
-  /* ---------------- 自定义键盘 ---------------- */
+
   function setKbHeight(h) {
     document.documentElement.style.setProperty('--kb-h', h + 'px');
   }
@@ -194,7 +192,7 @@
     b.disabled = !on;
     b.classList.toggle('active', on);
   }
-  /* ---------------- 搜索 ---------------- */
+
   function scheduleSearch() {
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(renderResults, 260);
@@ -235,45 +233,59 @@
     d.textContent = text;
     $('resultsList').appendChild(d);
   }
+
   function renderResults() {
     var q = searchStr.trim().replace(/^\$/g, '');
-    var seq = ++searchSeq;
     clearResults();
     if (!q) {
-      $('resultsHead').textContent = 'RESULTS';
-      if (!historyList.length) {
-        renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-        return;
-      }
-      historyList.forEach(function (u) {
-        $('resultsList').appendChild(makeRow(u));
-      });
+      // 输入框空，读取搜索历史
+      fetch(API + '/user/search-history/' + encodeURIComponent(uid))
+        .then(r=>r.json())
+        .then(data=>{
+          clearResults();
+          $('resultsHead').textContent = 'RESULTS';
+          if(!data || !data.ok || !Array.isArray(data.list) || data.list.length===0){
+            renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+            return;
+          }
+          var idList = data.list.slice(0,8);
+          idList.forEach(function(id){
+            fetch(API+'/user/lookup/'+encodeURIComponent(id))
+              .then(r=>r.json())
+              .then(d=>{
+                var item = (d && d.ok && d.user) ? d.user : makeDemoUser(id);
+                $('resultsList').appendChild(makeRow(item));
+              })
+              .catch(()=>{
+                $('resultsList').appendChild(makeRow(makeDemoUser(id)));
+              })
+          })
+        })
+        .catch(()=>{
+          clearResults();
+          renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+        });
       return;
     }
+
+    // 有搜索关键词，执行lookup
     $('resultsHead').textContent = 'RESULTS';
     fetch(API + '/user/lookup/' + encodeURIComponent(q))
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (seq !== searchSeq) return;
         clearResults();
         if (data && data.ok && data.user) {
-          var real = {
-            uid: data.user.uid,
-            nickname: data.user.nickname,
-            avatar: data.user.avatar || '',
-            avatarFallback: data.user.avatarFallback || ''
-          };
-          $('resultsList').appendChild(makeRow(real));
+          $('resultsList').appendChild(makeRow(data.user));
         } else {
           $('resultsList').appendChild(makeRow(makeDemoUser(q)));
         }
       })
       .catch(function () {
-        if (seq !== searchSeq) return;
         clearResults();
         $('resultsList').appendChild(makeRow(makeDemoUser(q)));
       });
   }
+
   function pickUser(user) {
     targetUser = user;
     noteStr = '';
@@ -287,37 +299,7 @@
     showSheet('noteSheet');
     saveHistory(user.uid);
   }
-  /* ---------------- 历史联系人 ---------------- */
-  function loadHistory() {
-    fetch(API + '/user/search-history/' + encodeURIComponent(uid))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data || !data.ok || !Array.isArray(data.list)) return;
-        var ids = data.list.slice(0, 8);
-        var out = [];
-        var i = 0;
-        function step() {
-          if (i >= ids.length) {
-            historyList = out;
-            return;
-          }
-          var id = ids[i++];
-          fetch(API + '/user/lookup/' + encodeURIComponent(id))
-            .then(function (r) { return r.json(); })
-            .then(function (d) {
-              if (d && d.ok && d.user) {
-                out.push({ uid: d.user.uid, nickname: d.user.nickname, avatar: d.user.avatar || '', avatarFallback: d.user.avatarFallback || '' });
-              } else {
-                out.push(makeDemoUser(id));
-              }
-            })
-            .catch(function () { out.push(makeDemoUser(id)); })
-            .then(step);
-        }
-        step();
-      })
-      .catch(function () {});
-  }
+
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
     if (!clean) return;
@@ -326,72 +308,35 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, searchId: clean })
     })
-    .then(function(res){
-      return res.json();
-    })
-    .then(function(ret){
-      console.log("保存搜索历史结果：", ret);
-    })
-    .catch(function(err){
-      console.error("保存搜索历史失败：", err);
-    });
+    .then(function(res){ return res.json(); })
+    .then(function(ret){ console.log("保存搜索历史结果：", ret); })
+    .catch(function(err){ console.error("保存搜索历史失败：", err); });
   }
-  /* ---------------- 首页数字键盘 ---------------- */
-  function pressNum(k) {
-    if (k === 'del') {
-      amountStr = amountStr.length > 1 ? amountStr.slice(0, -1) : '0';
-    } else if (k === '.') {
-      if (amountStr.indexOf('.') === -1) amountStr += '.';
-    } else {
-      if (amountStr.indexOf('.') !== -1) {
-        var dec = amountStr.split('.')[1] || '';
-        if (dec.length >= 2) return;
-      }
-      if (amountStr === '0') amountStr = k;
-      else {
-        var digits = amountStr.replace('.', '');
-        if (digits.length >= 10) return;
-        amountStr += k;
-      }
-    }
-    renderAmount();
-  }
-  /* ---------------- 顶部通知（独立计时） ---------------- */
+
   function showToast(amt, name) {
     $('toastBody').textContent = 'You paid ' + name + ' $' + money2(amt);
     $('toast').classList.add('show');
-    setTimeout(function () {
-      $('toast').classList.remove('show');
-    }, 2000);
+    setTimeout(function () { $('toast').classList.remove('show'); }, 2000);
   }
-  /* ---------------- 成功页 ---------------- */
   function showSuccess(amt) {
     $('successText').textContent = 'You sent $' + money2(amt) + ' to ' + (targetUser ? (targetUser.nickname || targetUser.uid) : '');
     $('successScreen').classList.add('open');
     $('homeScreen').style.display = 'none';
-    setTimeout(function () {
-      showToast(amt, targetUser ? (targetUser.nickname || targetUser.uid) : '');
-    }, 20);
+    setTimeout(function () { showToast(amt, targetUser ? (targetUser.nickname || targetUser.uid) : ''); }, 20);
   }
-  /* ---------------- 提示框 ---------------- */
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
-  /* ---------------- 登录态校验 ---------------- */
   function checkKick() {
     fetch(API + '/user/check-kick', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d && d.kicked) {
-          if (kickTimer) clearInterval(kickTimer);
-          showKickMask();
-        }
-      })
-      .catch(function () {});
+      .then(r=>r.json())
+      .then(d=>{ if(d && d.kicked){ if(kickTimer)clearInterval(kickTimer); showKickMask();}})
+      .catch(()=>{});
   }
+
   function boot() {
     buildKb();
     renderAmount();
@@ -403,28 +348,22 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
-      .then(function (r) { return r.json(); })
+      .then(r=>r.json())
       .then(function (d) {
         if (!d || !d.ok) {
-          if (d && /kicked|Session/.test(d.msg || '')) {
-            showKickMask();
-          } else {
-            localStorage.removeItem('uid');
-            localStorage.removeItem('clientId');
-            location.replace('/');
-          }
+          if (d && /kicked|Session/.test(d.msg || '')) { showKickMask(); }
+          else { localStorage.removeItem('uid'); localStorage.removeItem('clientId'); location.replace('/'); }
           return;
         }
         balance = Number(d.user.balance) || 0;
         myNickname = d.user.nickname || d.user.uid;
         renderBalance();
         renderMe();
-        loadHistory();
       })
       .catch(function () {});
     kickTimer = setInterval(checkKick, 9000);
   }
-  /* ---------------- 事件绑定 ---------------- */
+
   function bind() {
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
@@ -436,14 +375,11 @@
       if (!v || v <= 0) {
         amountStr = '0';
         renderAmount();
-        return;
       }
       searchStr = '';
-      searchSeq++;
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
       renderResults();
-      if (historyList.length) renderResults();
       showSheet('searchSheet');
     });
     $('closeSearch').addEventListener('click', function () { hideSheets(); });
@@ -483,10 +419,7 @@
       if (payBusy) return;
       var amt = parseFloat(amountStr);
       if (!amt || amt <= 0) { hideSheets(); return; }
-      if (Number(balance) < amt) {
-        showAlert();
-        return;
-      }
+      if (Number(balance) < amt) { showAlert(); return; }
       payBusy = true;
       showSheet('loadingSheet');
       var wait = 2000 + Math.random() * 1000;
@@ -502,7 +435,7 @@
             targetUid: targetUser ? targetUser.uid : ''
           })
         })
-          .then(function (r) { return r.json(); })
+          .then(r=>r.json())
           .then(function (d) {
             payBusy = false;
             if (!d || !d.ok) {
@@ -560,11 +493,33 @@
       renderAmount();
       renderBalance();
       hideSheets();
-      loadHistory();
     });
   }
+
   window.addEventListener('load', function () {
     bind();
     boot();
   });
+
+  // 首页数字键盘点击
+  function pressNum(k) {
+    if (k === 'del') {
+      amountStr = amountStr.length > 1 ? amountStr.slice(0, -1) : '0';
+    } else if (k === '.') {
+      if (amountStr.indexOf('.') === -1) amountStr += '.';
+    } else {
+      if (amountStr.indexOf('.') !== -1) {
+        var dec = amountStr.split('.')[1] || '';
+        if (dec.length >= 2) return;
+      }
+      if (amountStr === '0') amountStr = k;
+      else {
+        var digits = amountStr.replace('.', '');
+        if (digits.length >= 10) return;
+        amountStr += k;
+      }
+    }
+    renderAmount();
+  }
+
 })();
