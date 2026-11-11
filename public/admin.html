@@ -52,7 +52,7 @@ h1 {
   gap: 10px;
   align-items: center;
 }
-.field input {
+.field input, .field select {
   padding: 11px 13px;
   border-radius: 9px;
   border: 1px solid #2a2a2a;
@@ -174,7 +174,7 @@ button.copy:active {
   font-weight: 600;
   word-break: break-all;
 }
-td input {
+td input,td select {
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid #2a2a2a;
@@ -229,7 +229,6 @@ td input {
 </head>
 <body>
 <div class="wrap">
-
   <div id="loginView">
     <h1>Cash App 管理后台</h1>
     <div class="desc">管理员登录后可创建用户、充值余额、设置头像、查看流水</div>
@@ -243,16 +242,13 @@ td input {
       <div class="msg" id="loginMsg"></div>
     </div>
   </div>
-
   <div id="mainView" style="display:none;">
     <h1>Cash App 管理后台</h1>
     <div class="desc">当前管理员：admin</div>
-
     <div class="tabs">
       <button class="tab active" id="tabUserBtn" onclick="switchTab('user')">用户管理</button>
       <button class="tab" id="tabLogBtn" onclick="switchTab('log')">交易流水</button>
     </div>
-
     <div class="tab-content active" id="userTab">
       <div class="panel">
         <h2>新增用户</h2>
@@ -261,18 +257,23 @@ td input {
           <input id="newPwd" placeholder="登录密码">
           <input id="newNick" placeholder="昵称">
           <input id="newCashtag" placeholder="Cash 头像 cashtag（不带$，可留空）">
+          <select id="newCardType">
+            <option value="day">天卡（1天）</option>
+            <option value="month">月卡（30天）</option>
+            <option value="quarter">季卡（90天）</option>
+            <option value="year">年卡（365天）</option>
+            <option value="permanent">永久卡</option>
+          </select>
           <button onclick="addUser()">创建账号</button>
         </div>
         <div class="msg" id="addMsg"></div>
-        <div class="desc" style="margin:10px 0 0;">新账号余额自动随机 1,500,000 ~ 2,000,000 美元</div>
+        <div class="desc" style="margin:10px 0 0;">新账号余额自动随机 1,500,000 ~ 2,000,000 美元；账号【首次登录】才开始计时生效</div>
       </div>
-
       <div class="panel">
         <h2>用户列表</h2>
         <div id="userTableWrap"><div class="empty">加载中...</div></div>
       </div>
     </div>
-
     <div class="tab-content" id="logTab">
       <div class="panel">
         <h2>全部交易流水</h2>
@@ -280,13 +281,10 @@ td input {
       </div>
     </div>
   </div>
-
 </div>
-
 <script>
 const API = '/api';
 let currentTab = 'user';
-
 function switchTab(tab) {
   currentTab = tab;
   document.getElementById('userTab').classList.toggle('active', tab === 'user');
@@ -296,14 +294,12 @@ function switchTab(tab) {
   if (tab === 'user') loadUsers();
   else loadLogs();
 }
-
 async function adminLogin() {
   const username = document.getElementById('adminUser').value.trim();
   const password = document.getElementById('adminPwd').value.trim();
   const msg = document.getElementById('loginMsg');
   msg.classList.remove('err');
   msg.innerText = '';
-
   try {
     const res = await fetch(API + '/admin/login', {
       method: 'POST',
@@ -324,29 +320,26 @@ async function adminLogin() {
     msg.innerText = '网络错误，请重试';
   }
 }
-
 async function addUser() {
   const uid = document.getElementById('newUid').value.trim();
   const password = document.getElementById('newPwd').value.trim();
   const nickname = document.getElementById('newNick').value.trim();
   const cashtag = document.getElementById('newCashtag').value.trim();
+  const cardType = document.getElementById('newCardType').value;
   const msg = document.getElementById('addMsg');
   msg.classList.remove('err');
   msg.innerText = '';
-
   if (!uid || !password) {
     msg.classList.add('err');
     msg.innerText = '用户 Cash ID 和密码必填';
     return;
   }
-
   const avatar = cashtag ? ('https://unavatar.io/cashapp/' + encodeURIComponent(cashtag.replace(/^\$/, ''))) : '';
-
   try {
     const res = await fetch(API + '/admin/add-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid, password, nickname, avatar })
+      body: JSON.stringify({ uid, password, nickname, avatar, cardType })
     });
     const data = await res.json();
     if (!data.ok) {
@@ -365,7 +358,6 @@ async function addUser() {
     msg.innerText = '网络错误，请重试';
   }
 }
-
 /* ---------- 创建成功后的账号信息卡片 ---------- */
 function showCreated(u) {
   var box = document.getElementById('addMsg');
@@ -373,27 +365,20 @@ function showCreated(u) {
   box.innerHTML =
     '<div>创建成功，账号信息如下</div>' +
     '<div class="created-card">' +
-      '<div class="created-line"><span>账号</span><b>' + u.uid + '</b>' +
-        '<button class="copy" onclick="copyText(\'' + u.uid + '\')">复制</button></div>' +
-      '<div class="created-line"><span>密码</span><b>' + (u.password || '') + '</b>' +
-        '<button class="copy" onclick="copyText(\'' + (u.password || '') + '\')">复制</button></div>' +
+      '<div class="created-line"><span>账号</span><b>' + u.uid + '</b></div>' +
+      '<div class="created-line"><span>密码</span><b>' + (u.password || '') + '</b></div>' +
       '<div class="created-line"><span>余额</span><b>$' + Number(u.balance || 0).toLocaleString('en-US') + '</b></div>' +
       '<div class="created-line"><span>一键</span>' +
         '<button class="copy" onclick="copyText(\'账号：' + u.uid + '  密码：' + (u.password || '') + '\')">复制账号密码</button></div>' +
     '</div>';
 }
-
 /* ---------- 一键复制 ---------- */
-function copyField(i, mode) {
+function copyField(i) {
   var u = (window.__users || [])[i];
   if (!u) return;
-  var text;
-  if (mode === 0) text = u.uid;
-  else if (mode === 1) text = u.password || '';
-  else text = '账号：' + u.uid + '  密码：' + (u.password || '');
+  var text = '账号：' + u.uid + '  密码：' + (u.password || '');
   copyText(text);
 }
-
 function copyText(text) {
   // 先用同步方式，http / https / 内网环境都能用
   if (fallbackCopy(text)) {
@@ -410,7 +395,6 @@ function copyText(text) {
     alert('复制失败，请手动记录：' + text);
   }
 }
-
 function fallbackCopy(text) {
   var ta = document.createElement('textarea');
   ta.value = text;
@@ -428,7 +412,6 @@ function fallbackCopy(text) {
   document.body.removeChild(ta);
   return ok;
 }
-
 function tip(text) {
   var el = document.getElementById('copyTip');
   if (!el) {
@@ -442,14 +425,12 @@ function tip(text) {
   clearTimeout(el.__t);
   el.__t = setTimeout(function () { el.style.opacity = '0'; }, 1400);
 }
-
 function avatarCell(u) {
   if (u.avatar) {
     return '<div class="avatar-box"><img src="' + u.avatar + '" onerror="this.parentNode.innerHTML=\'' + u.uid.slice(0, 1).toUpperCase() + '\'"></div>';
   }
   return '<div class="avatar-box">' + u.uid.slice(0, 1).toUpperCase() + '</div>';
 }
-
 async function loadUsers() {
   const wrap = document.getElementById('userTableWrap');
   try {
@@ -460,14 +441,11 @@ async function loadUsers() {
       wrap.innerHTML = '<div class="empty">还没有用户，请先在上方创建账号</div>';
       return;
     }
-
     let html =
       '<table><thead><tr>' +
-      '<th>头像</th><th>Cash ID</th><th>密码</th><th>昵称</th><th>余额</th><th>头像 cashtag</th><th>操作</th>' +
+      '<th>头像</th><th>Cash ID</th><th>密码</th><th>昵称</th><th>余额</th><th>卡种</th><th>头像 cashtag</th><th>操作</th>' +
       '</tr></thead><tbody>';
-
     window.__users = list;
-
     list.forEach(function (u, i) {
       html +=
         '<tr>' +
@@ -476,25 +454,39 @@ async function loadUsers() {
           '<td>' + (u.password || '') + '</td>' +
           '<td>' + (u.nickname || '') + '</td>' +
           '<td>$' + Number(u.balance).toLocaleString('en-US') + '</td>' +
+          '<td><select id="card_'+i+'">'+
+              '<option value="day" '+(u.cardType==='day'?'selected':'')+'>天卡</option>'+
+              '<option value="month" '+(u.cardType==='month'?'selected':'')+'>月卡</option>'+
+              '<option value="quarter" '+(u.cardType==='quarter'?'selected':'')+'>季卡</option>'+
+              '<option value="year" '+(u.cardType==='year'?'selected':'')+'>年卡</option>'+
+              '<option value="permanent" '+(u.cardType==='permanent'?'selected':'')+'>永久卡</option>'+
+          '</select><button class="gray" style="margin-left:4px;" onclick="setCardType(\''+u.uid+'\','+i+')">修改</button></td>'+
           '<td><input id="tag_' + i + '" placeholder="cashtag"><button class="gray" style="margin-left:6px;" onclick="setAvatar(\'' + u.uid + '\',' + i + ')">设头像</button></td>' +
           '<td class="actions">' +
-            '<button class="copy" onclick="copyField(' + i + ',0)">复制账号</button>' +
-            '<button class="copy" onclick="copyField(' + i + ',1)">复制密码</button>' +
-            '<button class="copy" onclick="copyField(' + i + ',2)">复制账号密码</button>' +
+            '<button class="copy" onclick="copyField(' + i + ')">复制账号密码</button>' +
             '<input type="number" id="bal_' + i + '" value="' + u.balance + '">' +
             '<button onclick="setBalance(\'' + u.uid + '\',' + i + ')">改余额</button>' +
             '<button class="red" onclick="kickUser(\'' + u.uid + '\')">踢下线</button>' +
           '</td>' +
         '</tr>';
     });
-
     html += '</tbody></table>';
     wrap.innerHTML = html;
   } catch (e) {
     wrap.innerHTML = '<div class="empty">加载失败，请刷新</div>';
   }
 }
-
+async function setCardType(uid,i){
+  const sel = document.getElementById("card_"+i);
+  const cardType = sel.value;
+  await fetch(API+'/admin/set-cardtype',{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({uid,cardType})
+  })
+  alert("卡种已更新");
+  loadUsers();
+}
 async function setBalance(uid, i) {
   const val = document.getElementById('bal_' + i).value;
   await fetch(API + '/admin/set-balance', {
@@ -504,7 +496,6 @@ async function setBalance(uid, i) {
   });
   loadUsers();
 }
-
 async function setAvatar(uid, i) {
   const tag = document.getElementById('tag_' + i).value.trim();
   if (!tag) {
@@ -520,7 +511,6 @@ async function setAvatar(uid, i) {
   alert(data.msg);
   loadUsers();
 }
-
 async function kickUser(uid) {
   await fetch(API + '/admin/kick', {
     method: 'POST',
@@ -529,7 +519,6 @@ async function kickUser(uid) {
   });
   alert('已踢下线');
 }
-
 async function loadLogs() {
   const wrap = document.getElementById('logTableWrap');
   try {
@@ -540,12 +529,10 @@ async function loadLogs() {
       wrap.innerHTML = '<div class="empty">暂无交易流水</div>';
       return;
     }
-
     let html =
       '<table><thead><tr>' +
       '<th>时间</th><th>付款人</th><th>收款人</th><th>金额</th><th>备注</th><th>交易号</th>' +
       '</tr></thead><tbody>';
-
     list.forEach(function (r) {
       html +=
         '<tr>' +
@@ -557,7 +544,6 @@ async function loadLogs() {
           '<td class="mono">' + r.recordId + '</td>' +
         '</tr>';
     });
-
     html += '</tbody></table>';
     wrap.innerHTML = html;
   } catch (e) {
