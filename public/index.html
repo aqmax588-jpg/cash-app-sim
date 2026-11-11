@@ -2,23 +2,63 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Cash App</title>
-<link rel="stylesheet" href="style.css">
+<title>Login</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system}
+body{background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh}
+.box{width:90%;max-width:360px}
+h2{text-align:center;margin-bottom:24px}
+input{width:100%;padding:14px;margin:8px 0;border-radius:8px;border:none;font-size:16px}
+button{width:100%;padding:14px;margin-top:12px;background:#25c2a0;color:#000;border:none;border-radius:8px;font-weight:bold;font-size:16px}
+.msg{margin-top:12px;text-align:center;color:#ff6b6b}
+</style>
 </head>
 <body>
-<div id="loginPage" class="login-wrap">
-  <h2>Login</h2>
-  <input id="userName" placeholder="Username">
-  <input id="userPwd" type="password" placeholder="Password">
-  <button onclick="userLogin()">Sign In</button>
+<div class="box">
+  <h2>User Login</h2>
+  <input id="uid" placeholder="User ID">
+  <input id="pwd" type="password" placeholder="Password">
+  <button onclick="login()">Login</button>
+  <div class="msg" id="msg"></div>
 </div>
-<div id="app" class="app-wrap" style="display:none">
-  <div id="topNotification" class="top-notification hide-animate">
-    <span class="notify-text"></span>
-  </div>
-  <div id="pageWrap"></div>
-</div>
-<script src="script.js"></script>
+<script>
+const clientId = Math.random().toString(36).slice(2);
+async function login(){
+  const uid = document.getElementById("uid").value.trim();
+  const pwd = document.getElementById("pwd").value.trim();
+  const msgBox = document.getElementById("msg");
+  const res = await fetch("/api/user/login", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({uid, password:pwd, clientId})
+  });
+  const data = await res.json();
+  if(data.ok){
+    localStorage.setItem("uid", uid);
+    localStorage.setItem("clientId", clientId);
+    localStorage.setItem("userInfo", JSON.stringify(data.user));
+    location.href = "/cash";
+  }else{
+    msgBox.innerText = data.msg;
+  }
+}
+// 定时检测被踢
+setInterval(async ()=>{
+  const uid = localStorage.getItem("uid");
+  const cid = localStorage.getItem("clientId");
+  if(!uid || !cid) return;
+  const r = await fetch("/api/user/check-kick", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({uid, clientId:cid})
+  });
+  const d = await r.json();
+  if(d.kicked){
+    alert("You have been logged out on another device!");
+    localStorage.clear();
+    location.href = "/";
+  }
+}, 2000);
+</script>
 </body>
 </html>
