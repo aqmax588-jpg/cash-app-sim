@@ -1,168 +1,386 @@
 * {
-  box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
-html, body {
-  height: 100%;
-  background-color: #000;
+body {
+  background: #000;
   overflow: hidden;
+  height: 100vh;
+  position: fixed;
+  width: 100%;
 }
-#app {
-  width: 100vw;
+.app-container {
+  width: 100%;
   height: 100vh;
   position: relative;
-  background-color: #000;
-  color: #fff;
+  overflow: hidden;
+  transition: transform 0.2s ease;
 }
-.page {
+/* 这个现在保留，万一以后需要，现在备注不用原生输入，不会触发 */
+.app-container.keyboard-shift {
+  transform: translateY(-220px);
+}
+
+/* 顶部通知 */
+.top-notification {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 9999;
+  background: #1a1a1a;
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transform: translateY(-100px);
+  opacity: 0;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+.top-notification.active {
+  transform: translateY(0);
+  opacity: 1;
+}
+.top-notification.hide-animate {
+  transform: translateY(-100px);
+  opacity: 0;
+}
+.notify-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #00d060;
+  color: #000;
+  font-weight: bold;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+.notify-content {
+  flex: 1;
+}
+.notify-title {
+  color: #fff;
+  font-weight: 500;
+  font-size: 15px;
+}
+.notify-text {
+  color: #ccc;
+  font-size: 13px;
+}
+.notify-now {
+  color: #aaa;
+  font-size: 13px;
+}
+
+.page-wrap {
+  width: 100%;
+  height: 100%;
   position: absolute;
   top: 0;
   left: 0;
+}
+
+/* 首页 绿色背景 */
+.page-home {
   width: 100%;
   height: 100%;
-  padding: 30px 24px;
-  display: none;
+  background-color: #00a850;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 16px;
 }
-.page.active {
-  display: block;
+.home-header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
-/* 金额标题 */
-.amount-title {
-  font-size: 56px;
-  font-weight: 500;
-  text-align: center;
-  margin-top: 140px;
-  color: #ffffff;
-  letter-spacing: 1px;
+.menu-icon {
+  color: #000;
+  font-size: 24px;
 }
-/* 数字键盘 */
-.num-keyboard-wrap {
-  position: absolute;
-  bottom: 24px;
-  left: 20px;
-  right: 20px;
+.avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #222;
+  color: #fff;
+  display: grid;
+  place-items: center;
 }
-.num-keyboard {
+.amount-display {
+  font-size: 120px;
+  font-weight: 700;
+  color: #000;
+  line-height: 1;
+}
+/* CashApp 数字键盘 */
+.keypad {
+  width: 100%;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  gap: 8px;
+  margin-bottom: 24px;
 }
 .key-btn {
-  padding: 22px 8px;
-  background: #222222;
-  border-radius: 20px;
-  text-align: center;
+  padding: 14px 8px;
   font-size: 28px;
-  color: #fff;
   border: none;
+  background: transparent;
+  color: #000;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 999px;
+}
+.key-btn:active {
+  background: rgba(0,0,0,0.08);
+}
+.key-pay {
+  background: #000;
+  color: #fff !important;
+}
+.key-pay:active {
+  background: #222;
+}
+
+/* 收款人选择页 */
+.page-receiver {
+  width: 100%;
+  height: 100%;
+  background: #00a850;
+  padding: 24px 16px;
+}
+.search-box {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: none;
+  font-size: 16px;
+  margin-bottom: 20px;
+}
+.receiver-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.15);
   cursor: pointer;
 }
-.key-btn.pay {
-  background: #00d54b;
-  color: #000;
-  font-weight: 600;
+.receiver-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #444;
+  color: #fff;
+  display: grid;
+  place-items: center;
 }
-/* 弹窗卡片 */
-.popup {
-  background: #1c1c1e;
-  border-radius: 24px;
+.receiver-name {
+  color: #fff;
+  font-size: 18px;
+}
+
+/* 底部弹窗 */
+.modal-wrap {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #111;
+  border-radius: 24px 24px 0 0;
   padding: 24px;
+  min-height: 420px;
+  transition: bottom 0.25s ease;
+}
+.modal-back {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #222;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+.modal-title {
+  color: #fff;
+  font-size: 26px;
+  margin-bottom: 16px;
+}
+.receiver-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.receiver-row .receiver-avatar {
+  width: 40px;
+  height: 40px;
+}
+.receiver-row .receiver-name {
+  color: #fff;
+  font-size: 20px;
+}
+/* 备注自定义显示行，替代原生input */
+.note-display {
+  width: 100%;
+  background: transparent;
+  border-bottom: 1px solid #444;
+  color: #fff;
+  font-size: 22px;
+  padding: 8px 0;
+  margin-bottom: 16px;
+  min-height: 36px;
+}
+/* 备注文字键盘 */
+.text-keypad {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.text-key {
+  padding: 10px 6px;
+  font-size: 20px;
+  border: none;
+  border-radius: 12px;
+  background: #222;
+  color: #fff;
+  cursor: pointer;
+}
+.text-key:active {
+  background: #333;
+}
+.continue-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 999px;
+  border: none;
+  background: #333;
+  color: #777;
+  font-size: 18px;
+  cursor: not-allowed;
+}
+.continue-btn.active {
+  background: #fff;
+  color: #000;
+  cursor: pointer;
+}
+.style-row {
+  width: 100%;
+  border: 1px solid #444;
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #ccc;
   margin: 16px 0;
 }
-.popup h3 {
-  font-size: 20px;
-  font-weight: 500;
-  margin-bottom: 14px;
+.balance-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   color: #fff;
+  font-size: 16px;
+  margin: 16px 0;
 }
-.custom-input {
-  background: #2c2c2e;
-  border: none;
-  color: #fff;
-  padding: 16px;
-  border-radius: 16px;
-  width: 100%;
-  font-size: 17px;
-  margin: 8px 0;
-}
-.continue {
-  width: 100%;
-  padding: 16px;
-  background: #00d54b;
+.balance-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #00d060;
   color: #000;
+  display: grid;
+  place-items: center;
+  font-weight: bold;
+  font-size: 14px;
+}
+.tip-text {
+  color: #777;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+.pay-btn {
+  width: 100%;
+  padding: 16px;
+  border-radius: 999px;
   border: none;
-  border-radius: 16px;
-  font-weight: 600;
-  font-size: 17px;
-  margin-top: 14px;
+  background: #fff;
+  color: #000;
+  font-size: 18px;
+  font-weight: 500;
+  cursor: pointer;
 }
-.avatar {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  object-fit: cover;
-  margin-bottom: 10px;
+/* 加载转圈 */
+.modal-loading {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: grid;
+  place-items: center;
+  border-radius: 24px 24px 0 0;
 }
-.loading-circle {
-  width: 90px;
-  height: 90px;
+.loader {
+  width: 44px;
+  height: 44px;
   border: 4px solid #333;
-  border-top-color: #00d54b;
+  border-top-color: #fff;
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin: 160px auto;
+  animation: spin 1s linear infinite;
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
-/* 顶部通知弹窗【独立计时】Cash App 通知样式 */
-.top-notification {
-  position: fixed;
-  top: 12px;
-  left: 16px;
-  right: 16px;
-  background: #1c1c1e;
-  border-radius: 16px;
-  padding: 14px 16px;
-  z-index: 9999;
+
+/* 成功页面 */
+.page-success {
+  width: 100%;
+  height: 100%;
+  background: #000;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  transition: transform 0.3s ease-out;
-  transform: translateY(0);
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 40px 24px;
 }
-.top-notification.hide {
-  transform: translateY(-120%);
-}
-.notify-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.notify-icon {
-  width: 28px;
-  height: 28px;
-  background: #00d54b;
+.success-check {
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  color: #000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-}
-.notify-title {
-  font-weight: 500;
-  font-size: 16px;
+  background: #00b84f;
   color: #fff;
+  font-size: 32px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 24px;
 }
-.notify-desc {
-  font-size: 14px;
-  color: #aaa;
-  margin-top: 2px;
+.success-text {
+  color: #fff;
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: auto;
 }
-.notify-right {
-  color: #aaa;
-  font-size: 14px;
+.success-buttons {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 30px;
+}
+.success-btn {
+  width: 100%;
+  padding: 16px;
+  border-radius: 999px;
+  border: none;
+  background: #d8c8b0;
+  color: #000;
+  font-size: 18px;
+  cursor: pointer;
 }
