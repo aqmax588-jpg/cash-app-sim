@@ -1,6 +1,5 @@
-// 完整交互逻辑：数字输入、pay、历史记录、账号搜索、备注、余额校验、支付、加载、成功弹窗、顶部提示、交易流水、搜索历史
-const uid = localStorage.getItem("uid");
-if(!uid) location.href = "/";
+ const uid = localStorage.getItem("uid");
+if (!uid) location.href = "/";
 let userInfo = JSON.parse(localStorage.getItem("userInfo"));
 let currentAmount = "";
 let targetUser = null;
@@ -8,18 +7,18 @@ let remarkText = "";
 let pageState = 0;
 let searchHistoryList = [];
 
-async function loadSearchHistory(){
+async function loadSearchHistory() {
   const res = await fetch(`/api/user/search-history/${uid}`);
   searchHistoryList = await res.json();
 }
 loadSearchHistory();
 
-function render(){
+function render() {
   const app = document.getElementById("app");
-  if(pageState === 0){
+  if (pageState === 0) {
     app.innerHTML = `
       <div class="page active">
-        <h2 style="text-align:center;margin-top:20px">$${currentAmount}</h2>
+        <div class="amount-title">$${currentAmount}</div>
         <div class="num-keyboard">
           <button class="key-btn" onclick="inputNum('1')">1</button>
           <button class="key-btn" onclick="inputNum('2')">2</button>
@@ -35,16 +34,16 @@ function render(){
           <button class="key-btn pay" onclick="goSearch()">Pay</button>
         </div>
       </div>
-    `
-  }else if(pageState === 1){
+    `;
+  } else if (pageState === 1) {
     app.innerHTML = `
       <div class="page active">
         <div class="popup">
           <h3>Search ID</h3>
           <input class="custom-input" id="searchId" placeholder="Enter ID" oninput="onSearchChange()">
-          <div style="margin-top:12px">
-            <p>History</p >
-            ${searchHistoryList.map(h=>`<div onclick="selectHistory('${h}')">${h}</div>`).join("")}
+          <div style="margin-top:12px;">
+            <p style="margin-bottom:8px;">History</p>
+            ${searchHistoryList.map(h => `<div style="padding:8px 0;" onclick="selectHistory('${h}')">${h}</div>`).join("")}
           </div>
         </div>
         <div class="num-keyboard">
@@ -62,15 +61,15 @@ function render(){
           <button class="key-btn pay" onclick="doSearch()">✓</button>
         </div>
       </div>
-    `
-  }else if(pageState === 2){
-    if(targetUser){
+    `;
+  } else if (pageState === 2) {
+    if (targetUser) {
       app.innerHTML = `
         <div class="page active">
           <div class="popup" onclick="showRemark()">
-            < img class="avatar" src="${targetUser.avatar}" alt="avatar">
-            <p>${targetUser.nickname}</p >
-            <p>ID: ${targetUser.uid}</p >
+            <img class="avatar" src="${targetUser.avatar}" alt="avatar">
+            <p style="font-size:20px;">${targetUser.nickname}</p>
+            <p style="color:#aaa;">ID: ${targetUser.uid}</p>
           </div>
           <div class="popup">
             <h3>Remark</h3>
@@ -78,122 +77,121 @@ function render(){
             <button class="continue" onclick="goConfirm()">Continue</button>
           </div>
         </div>
-      `
-    }else{
+      `;
+    } else {
       app.innerHTML = `
         <div class="page active">
           <div class="popup">
-            <p>No user found with this ID</p >
-            <button onclick="pageState=1;render()">Back</button>
+            <p>No user found with this ID</p>
+            <button style="margin-top:12px;padding:10px;border-radius:8px;" onclick="pageState=1;render()">Back</button>
           </div>
         </div>
-      `
+      `;
     }
-  }else if(pageState === 3){
+  } else if (pageState === 3) {
     app.innerHTML = `
       <div class="page active">
         <div class="popup">
           <h3>Confirm Payment</h3>
-          <p>To: ${targetUser.nickname}</p >
-          <p>Amount: $${currentAmount}</p >
-          <p>Your Balance: $${userInfo.balance.toLocaleString()}</p >
-          <p>Remark: ${remarkText || "-"}</p >
+          <p style="margin:6px 0;">To: ${targetUser.nickname}</p>
+          <p style="margin:6px 0;">Amount: $${currentAmount}</p>
+          <p style="margin:6px 0;">Your Balance: $${userInfo.balance.toLocaleString()}</p>
+          <p style="margin:6px 0;">Remark: ${remarkText || "-"}</p>
           <button class="continue" onclick="doPay()">Pay</button>
         </div>
       </div>
-    `
-  }else if(pageState === 4){
+    `;
+  } else if (pageState === 4) {
     app.innerHTML = `
       <div class="page active">
         <div class="loading-circle"></div>
       </div>
-    `
-    setTimeout(()=>{
-      if(Number(currentAmount) > userInfo.balance){
+    `;
+    setTimeout(() => {
+      if (Number(currentAmount) > userInfo.balance) {
         pageState = 5;
         render();
-      }else{
+      } else {
         pageState = 6;
         render();
         showToast();
       }
-    }, 2500)
-  }else if(pageState === 5){
+    }, 2500);
+  } else if (pageState === 5) {
     app.innerHTML = `
       <div class="page active">
         <div class="popup">
           <h3>Payment Failed</h3>
-          <p>Insufficient balance</p >
-          <button onclick="pageState=0;currentAmount='';render()">Done</button>
+          <p style="margin:8px 0;">Insufficient balance</p>
+          <button style="margin-top:12px;padding:10px;border-radius:8px;" onclick="pageState=0;currentAmount='';render()">Done</button>
         </div>
       </div>
-    `
-  }else if(pageState === 6){
+    `;
+  } else if (pageState === 6) {
     app.innerHTML = `
       <div class="page active">
         <div class="popup">
           <h3>Payment Success</h3>
-          <p>Paid $${currentAmount} to ${targetUser.nickname}</p >
-          <button onclick="pageState=0;currentAmount='';targetUser=null;remarkText='';render()">Done</button>
+          <p style="margin:8px 0;">Paid $${currentAmount} to ${targetUser.nickname}</p>
+          <button class="continue" onclick="pageState=0;currentAmount='';targetUser=null;remarkText='';render()">Done</button>
         </div>
         <div class="top-toast" id="toast">
           Paid $${currentAmount} to ${targetUser.nickname} | ${new Date().toLocaleTimeString()}
         </div>
       </div>
-    `
-    setTimeout(()=>{
+    `;
+    setTimeout(() => {
       const t = document.getElementById("toast");
-      if(t) t.classList.add("hide");
-    }, 2000)
+      if (t) t.classList.add("hide");
+    }, 2000);
   }
 }
 
-function inputNum(c){
+function inputNum(c) {
   currentAmount += c;
   render();
 }
-function goSearch(){
+function goSearch() {
   pageState = 1;
   render();
 }
-function selectHistory(id){
+function selectHistory(id) {
   document.getElementById("searchId").value = id;
   doSearch();
 }
-function inputSearchChar(c){
+function inputSearchChar(c) {
   const el = document.getElementById("searchId");
   el.value += c;
 }
-async function doSearch(){
+async function doSearch() {
   const sid = document.getElementById("searchId").value.trim();
   await fetch("/api/user/save-search", {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({uid, searchId:sid})
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ uid, searchId: sid })
   });
   targetUser = {
     uid: sid,
     nickname: "User " + sid,
-    avatar: "https://via.placeholder.com/128/25c2a0/ffffff?text=AV"
+    avatar: "https://via.placeholder.com/128/00d54b/000000?text=AV"
   };
   pageState = 2;
   render();
 }
-function showRemark(){
-  // 点击头像区域，收起键盘，备注框点击才弹出
+function showRemark() {
 }
-function goConfirm(){
+function goConfirm() {
   remarkText = document.getElementById("remarkInput").value.trim();
   pageState = 3;
   render();
 }
-async function doPay(){
+async function doPay() {
   pageState = 4;
   render();
   const res = await fetch("/api/user/pay", {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
       uid,
       amount: Number(currentAmount),
       remark: remarkText,
@@ -203,12 +201,9 @@ async function doPay(){
     })
   });
   const data = await res.json();
-  if(data.ok){
+  if (data.ok) {
     userInfo.balance = data.user.balance;
     localStorage.setItem("userInfo", JSON.stringify(userInfo));
   }
-}
-function showToast(){
-  // 顶部弹窗自动上移隐藏
 }
 render();
