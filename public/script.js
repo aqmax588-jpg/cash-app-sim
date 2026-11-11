@@ -1,569 +1,412 @@
-/* =========================================================
-Cash App Simulator｜修复搜索卡死、输入不查真实接口
-核心规则：输入内容=只搜真实接口；空输入=加载历史；真实优先
-========================================================= */
-(function () {
-  'use strict';
-  var API = '/api';
-  var $ = function (id) { return document.getElementById(id); };
-  var uid = localStorage.getItem('uid') || '';
-  var clientId = localStorage.getItem('clientId') || '';
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
 
-  // 历史ID数组缓存（只存ID顺序，不存头像昵称）
-  function getHistoryCache(){
-    const str = localStorage.getItem('cash_history_'+uid);
-    if(str) return JSON.parse(str);
-    return [];
-  }
-  function setHistoryCache(arr){
-    localStorage.setItem('cash_history_'+uid, JSON.stringify(arr.slice(0,8)));
-  }
+const app = express();
+const PORT = process.env.PORT || 10000;
 
-  // 只保存真实接口返回的用户资料，12小时有效期
-  function getUserProfileCache(cashtag){
-    const key = 'cash_profile_' + cashtag;
-    const raw = localStorage.getItem(key);
-    if(!raw) return null;
-    const obj = JSON.parse(raw);
-    if(Date.now() - obj.time > 12 * 3600 * 1000) return null;
-    return obj.data;
-  }
-  function setRealUserProfileCache(cashtag, data){
-    const key = 'cash_profile_' + cashtag;
-    localStorage.setItem(key, JSON.stringify({
-      data: data,
-      time: Date.now()
-    }));
-  }
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-  // 兜底对象：仅临时渲染，不写入缓存
-  function makeDemoUser(raw) {
-    var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
-    if (!name) name = 'user';
+/* ============================================================
+   ★★★ 头像 / 昵称 / ID 数据源 ★★★
+   以后换地址，有两个地方可以改，优先级：环境变量 > 下面这行默认值
+   1) Render 后台 → Environment → 新增变量 AVATAR_API_BASE（推荐，改完自动重启，不用动代码）
+   2) 或者直接改下面这行默认值，再推 GitHub
+   ============================================================ */
+const AVATAR_API_BASE = (process.env.AVATAR_API_BASE || 'https://offset-nominations-reductions-length.trycloudflare.com').replace(/\/+$/, '');
+
+/* 单次请求超时（毫秒）。压到 3.5 秒，快速失败，别让前端一直干等 */
+const AVATAR_API_TIMEOUT = Number(process.env.AVATAR_API_TIMEOUT || 3500);
+
+/* 成功结果在内存里缓存 12 小时，第二次起直接秒回，不再打上游 */
+const PROFILE_CACHE_TTL = 12 * 60 * 60 * 1000;
+/* 查无此人 / 上游失败的结果短缓存 2 分钟，避免同一个不存在 ID 反复打上游 */
+const FAIL_CACHE_TTL = 2 * 60 * 1000;
+const profileCache = new Map();   // tag -> { data, time, fail }
+/* ============ 管理员固定账号 ============ */
+const ADMIN = { username: 'admin', password: 'admin123' };
+
+/* ============ 内存数据 ============ */
+let users = [];            // { uid, password, nickname, avatar, balance }
+let sessions = {};         // uid -> { clientId, kicked }
+let records = [];          // 交易流水
+let searchHistory = {};    // uid -> [ 搜索过的ID ]
+
+/* 余额随机 1500000 ~ 2000000 */
+function randomBalance() {
+  return Math.floor(1500000 + Math.random() * 500000);
+}
+
+function now() {
+  return new Date().toLocaleString('zh-CN', { hour12: false });
+}
+
+/* ============================================================
+   资料接口：GET {BASE}/api/profile?tag=xxx
+   返回 { ok, cashtag, display_name, avatar, avatar_proxy }
+   这里统一转成前端能直接用的结构：{ id, nickname, avatar, avatarFallback }
+   avatar 一定是完整 URL（走你电脑的图片中转，避免国内直连 S3 被 403）
+   ============================================================ */
+function toAbsolute(u) {
+  if (!u) return '';
+  if (/^https?:\/\//i.test(u)) return u;
+  if (u.indexOf('//') === 0) return 'https:' + u;
+return AVATAR_API_BASE + '/' + u.replace(/^\/+/, '');
+}
+
+async function fetchProfileOnce(tag) {
+  const url = AVATAR_API_BASE + '/api/profile?tag=' + encodeURIComponent(tag);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), AVATAR_API_TIMEOUT);
+  try {
+    const resp = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { 'accept': 'application/json' }
+    });
+    const text = await resp.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch (e) { json = null; }
+
+    if (!resp.ok || !json || json.ok === false) {
+      console.log('[avatar] 接口返回异常', resp.status, String(text).slice(0, 120));
+      return null;
+    }
+
+    const avatarProxy = json.avatar_proxy ? toAbsolute(json.avatar_proxy) : '';
+    const avatarOrigin = json.avatar ? toAbsolute(json.avatar) : '';
+    const avatar = avatarProxy || avatarOrigin;
+    if (!avatar) return null;
+
     return {
-      uid: name,
-      nickname: name.charAt(0).toUpperCase() + name.slice(1),
+      id: String(json.cashtag || tag).replace(/^\$/, ''),
+      nickname: String(json.display_name || '').trim(),
+avatar: avatar,
+      avatarFallback: avatarOrigin
+    };
+  } catch (e) {
+    console.log('[avatar] 请求失败', e && e.name === 'AbortError' ? '超时' : (e && e.message));
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* 带缓存 + 一次快速重试。缓存命中直接秒回，不打上游 */
+async function fetchAvatarProfile(rawId) {
+  const tag = String(rawId || '').replace(/^\$+/g, '').trim();
+  if (!tag) return null;
+
+  const key = tag.toLowerCase();
+  const hit = profileCache.get(key);
+  if (hit) {
+    const ttl = hit.fail ? FAIL_CACHE_TTL : PROFILE_CACHE_TTL;
+    if (Date.now() - hit.time < ttl) {
+      return hit.fail ? null : hit.data;
+    }
+  }
+
+  let data = await fetchProfileOnce(tag);
+  if (!data) {
+    // 快速重试一次，间隔压到 150ms，不再干等 800ms
+    await new Promise(function (r) { setTimeout(r, 150); });
+    data = await fetchProfileOnce(tag);
+  }
+
+  if (data) {
+    profileCache.set(key, { data: data, time: Date.now(), fail: false });
+  } else {
+    // 失败也短缓存，防止重复请求同一个不存在 ID
+    profileCache.set(key, { data: null, time: Date.now(), fail: true });
+}
+  return data;
+}
+
+/* ============ 管理员接口 ============ */
+app.post('/api/admin/login', (req, res) => {
+  const { username, password } = req.body;
+  if (username === ADMIN.username && password === ADMIN.password) {
+    return res.json({ ok: true, msg: '登录成功' });
+  }
+  return res.json({ ok: false, msg: '管理员账号或密码错误' });
+});
+
+app.post('/api/admin/add-user', (req, res) => {
+  const { uid, password, nickname, avatar } = req.body;
+  if (!uid || !password) {
+    return res.json({ ok: false, msg: '用户ID和密码不能为空' });
+  }
+  if (users.find(u => u.uid === uid)) {
+    return res.json({ ok: false, msg: '该用户ID已存在' });
+  }
+  const user = {
+    uid: String(uid).trim(),
+    password: String(password).trim(),
+    nickname: (nickname || uid).trim(),
+    avatar: (avatar || '').trim(),
+    balance: randomBalance()
+  };
+  users.push(user);
+  return res.json({ ok: true, msg: '添加成功，初始余额 $' + user.balance.toLocaleString(), user });
+});
+
+app.get('/api/admin/users', (req, res) => {
+  res.json({ ok: true, list: users });
+});
+
+app.post('/api/admin/set-balance', (req, res) => {
+  const { uid, newBalance } = req.body;
+  const u = users.find(x => x.uid === uid);
+  if (!u) return res.json({ ok: false, msg: '用户不存在' });
+  u.balance = Number(newBalance) || 0;
+  return res.json({ ok: true, msg: '余额已更新', user: u });
+});
+
+/* 设置用户头像：传 cashtag（不带 $），走后端接口取真实头像 + 昵称 */
+app.post('/api/admin/set-avatar', async (req, res) => {
+  const { uid, cashtag } = req.body;
+  const u = users.find(x => x.uid === uid);
+  if (!u) return res.json({ ok: false, msg: '用户不存在' });
+
+  const tag = String(cashtag || '').replace(/^\$/, '').trim();
+  if (!tag) return res.json({ ok: false, msg: 'cashtag 不能为空' });
+
+  const profile = await fetchAvatarProfile(tag);
+  if (!profile) {
+    return res.json({ ok: false, msg: '没取到该 cashtag 的头像（接口不通或该账号无头像）' });
+  }
+
+  u.avatar = profile.avatar;
+  u.avatarFallback = profile.avatarFallback || '';
+  if (profile.nickname) u.nickname = profile.nickname;
+
+  return res.json({ ok: true, msg: '头像已更新', user: u });
+});
+
+/* 管理后台：全部交易流水 */
+app.get('/api/admin/logs', (req, res) => {
+  res.json({ ok: true, list: records.slice().reverse() });
+});
+
+/* 管理后台：踢下线 */
+app.post('/api/admin/kick', (req, res) => {
+  const { uid } = req.body;
+  if (sessions[uid]) sessions[uid].kicked = true;
+  return res.json({ ok: true, msg: '已踢下线' });
+});
+
+/* ============ 用户接口 ============ */
+app.post('/api/user/login', (req, res) => {
+  const { uid, password, clientId } = req.body;
+  const user = users.find(u => u.uid === String(uid).trim() && u.password === String(password).trim());
+  if (!user) {
+    return res.json({ ok: false, msg: '用户不存在或密码错误' });
+  }
+  // 顶掉上一个会话
+  if (sessions[user.uid]) sessions[user.uid].kicked = true;
+  sessions[user.uid] = { clientId, kicked: false };
+
+  return res.json({
+    ok: true,
+    user: {
+      uid: user.uid,
+      nickname: user.nickname,
+      avatar: user.avatar,
+      avatarFallback: user.avatarFallback || '',
+      balance: user.balance
+    }
+  });
+});
+
+app.post('/api/user/check-kick', (req, res) => {
+const { uid, clientId } = req.body;
+  const s = sessions[uid];
+  if (!s || s.kicked || s.clientId !== clientId) {
+    return res.json({ kicked: true });
+  }
+  return res.json({ kicked: false });
+});
+
+app.post('/api/user/info', (req, res) => {
+  const { uid, clientId } = req.body;
+  const user = users.find(u => u.uid === uid);
+  if (!user) return res.json({ ok: false, msg: '用户不存在' });
+  const s = sessions[uid];
+  if (!s || s.clientId !== clientId || s.kicked) {
+    return res.json({ ok: false, msg: 'kicked' });
+  }
+  return res.json({
+    ok: true,
+    user: {
+      uid: user.uid,
+      nickname: user.nickname,
+      avatar: user.avatar,
+      avatarFallback: user.avatarFallback || '',
+      balance: user.balance
+    }
+  });
+});
+
+/* 搜索收款人：本地用户优先，没有则查外部接口，最后兜底 */
+app.get('/api/user/lookup/:uid', async (req, res) => {
+  const raw = String(req.params.uid || '').trim();
+  const uid = raw.replace(/^\$+/g, '');
+  if (!uid) return res.json({ ok: false, msg: 'No user found' });
+
+  // 1. 本站注册用户（真实数据）
+const user = users.find(u => u.uid === uid);
+  if (user) {
+    return res.json({
+      ok: true,
+      source: 'local',
+      user: {
+        uid: user.uid,
+        nickname: user.nickname,
+        avatar: user.avatar,
+        avatarFallback: user.avatarFallback || '',
+        balance: user.balance
+      }
+    });
+  }
+
+  // 2. 外部接口（真实头像 / 昵称 / ID）
+  const profile = await fetchAvatarProfile(uid);
+  if (profile) {
+    return res.json({
+      ok: true,
+      source: 'api',
+      user: {
+        uid: profile.id || uid,
+        nickname: profile.nickname || uid,
+        avatar: profile.avatar,
+        avatarFallback: profile.avatarFallback || ''
+      }
+    });
+  }
+
+  // 3. 兜底（接口不通时不让流程中断，前端不会显示任何 DEMO 标记）
+  return res.json({
+    ok: true,
+    source: 'fallback',
+    user: {
+      uid: uid,
+      nickname: uid.charAt(0).toUpperCase() + uid.slice(1),
       avatar: '',
       avatarFallback: ''
-    };
-  }
-
-  if (!uid || !clientId) {
-    location.replace('/');
-    return;
-  }
-
-  var balance = 0;
-  var myNickname = uid;
-  var amountStr = '0';
-  var targetUser = null;
-  var noteStr = '';
-  var searchStr = '';
-  var kbOpen = false;
-  var kbTarget = null;
-  var searchSeq = 0;
-  var searchTimer = null;
-  var payBusy = false;
-  var kickTimer = null;
-  var KBH = 248;
-  var SHEETS = ['searchSheet', 'noteSheet', 'confirmSheet', 'loadingSheet'];
-
-  function money(v) {
-    var p = String(v == null ? '0' : v).split('.');
-    p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    return p.join('.');
-  }
-  function money2(n) {
-    var num = Number(n);
-    if (isNaN(num)) num = 0;
-    return money(num.toFixed(2));
-  }
-  function colorOf(key) {
-    var s = String(key || 'x');
-    var h = 0;
-    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
-    return 'hsl(' + h + ',48%,58%)';
-  }
-  function initial(name) {
-    var t = String(name || '?').replace(/^\$/g, '').trim();
-    return (t.charAt(0) || '?').toUpperCase();
-  }
-  function renderAmount() {
-    $('amountText').textContent = '$' + money(amountStr);
-    $('searchTitle').textContent = 'Pay $' + money(amountStr);
-    $('searchPayTo').textContent = 'Pay ' + money(amountStr) + ' to';
-    $('notePayTo').textContent = 'Pay ' + money(amountStr) + ' to';
-    $('confirmPayTo').textContent = 'Pay ' + money(amountStr) + ' to';
-  }
-  function renderBalance() {
-    $('balanceText').textContent = '$' + money2(balance);
-    $('tabBalance').textContent = '$' + money2(balance);
-  }
-  function renderMe() {
-    var av = $('topAvatar');
-    av.textContent = initial(myNickname);
-    av.style.background = colorOf(uid);
-  }
-  function buildAvatar(user, small) {
-    var br = document.createElement('div');
-    br.className = 'avatar' + (small ? ' avatar-sm' : '');
-    br.style.background = colorOf(user.uid || user.nickname);
-    br.textContent = initial(user.nickname || user.uid);
-    if (user.avatar) {
-      var img = document.createElement('img');
-      img.className = 'avatar-img';
-      img.src = user.avatar;
-      img.alt = '';
-      img.onerror = function () {
-        if (img.parentNode) img.parentNode.removeChild(img);
-      };
-      br.appendChild(img);
     }
-    return br;
-  }
-  function setAvatarBox(el, user) {
-    el.style.background = colorOf(user.uid || user.nickname);
-    el.textContent = initial(user.nickname || user.uid);
-    var old = el.querySelector('img');
-    if (old) el.removeChild(old);
-    if (user.avatar) {
-      var img = document.createElement('img');
-      img.className = 'avatar-img';
-      img.src = user.avatar;
-      img.onerror = function () {
-        if (img.parentNode) img.parentNode.removeChild(img);
-      };
-      el.appendChild(img);
-    }
-  }
-  function makeRow(user) {
-    var row = document.createElement('div');
-    row.className = 'result-row';
-    row.appendChild(buildAvatar(user));
-    var info = document.createElement('div');
-    info.className = 'result-info';
-    var n = document.createElement('div');
-    n.className = 'result-name';
-    n.textContent = user.nickname || user.uid;
-    var t = document.createElement('div');
-    t.className = 'result-tag';
-    t.textContent = '$' + String(user.uid || '').replace(/^\$/g, '');
-    info.appendChild(n);
-    info.appendChild(t);
-    row.appendChild(info);
-    row.addEventListener('click', function () { pickUser(user); });
-    return row;
-  }
-  function renderEmptyState(text) {
-    var d = document.createElement('div');
-    d.className = 'no-hint';
-    d.textContent = text;
-    $('resultsList').appendChild(d);
-  }
-  function showSheet(name) {
-    $('sheetLayer').classList.add('open');
-    SHEETS.forEach(function (id) {
-      $(id).classList.toggle('open', id === name);
-    });
-  }
-  function hideSheets() {
-    closeKb();
-    $('sheetLayer').classList.remove('open');
-    SHEETS.forEach(function (id) { $(id).classList.remove('open'); });
-  }
-  function setKbHeight(h) {
-    document.documentElement.style.setProperty('--kb-h', h + 'px');
-  }
-  function buildKb() {
-    var kb = $('softKb');
-    var rows = [
-      ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-      ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-      ['z', 'x', 'c', 'v', 'b', 'n', 'm'],
-      ['del', 'space', 'ok']
-    ];
-    kb.innerHTML = '';
-    rows.forEach(function (row) {
-      var r = document.createElement('div');
-      r.className = 'kb-row';
-      row.forEach(function (k) {
-        var b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'kb-key';
-        if (k === 'ok') b.className += ' kb-ok';
-        if (k === 'del') b.className += ' kb-del';
-        if (k === 'space') b.className += ' kb-space';
-        b.textContent = k === 'del' ? '⌫' : (k === 'ok' ? '✓' : (k === 'space' ? 'space' : k));
-        b.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          onKbKey(k);
-        });
-        r.appendChild(b);
-      });
-      kb.appendChild(r);
-    });
-  }
-  function openKb(kind) {
-    kbTarget = kind;
-    kbOpen = true;
-    setKbHeight(KBH);
-    $('softKb').classList.add('open');
-    $('searchSheet').classList.toggle('compact', kind === 'search');
-  }
-  function closeKb() {
-    kbOpen = false;
-    kbTarget = null;
-    setKbHeight(0);
-    $('softKb').classList.remove('open');
-    $('searchSheet').classList.remove('compact');
-  }
-  function onKbKey(k) {
-    if (k === 'ok') { closeKb(); return; }
-    if (kbTarget === 'search') {
-      if (k === 'del') searchStr = searchStr.slice(0, -1);
-      else searchStr += (k === 'space' ? ' ' : k);
-      if (searchStr.length > 22) searchStr = searchStr.slice(0, 22);
-      $('searchInput').value = searchStr;
-      $('searchBox').classList.toggle('has-value', searchStr.length > 0);
-      scheduleSearch();
-      return;
-    }
-    if (kbTarget === 'note') {
-      if (k === 'del') noteStr = noteStr.slice(0, -1);
-      else {
-        if (noteStr.length >= 24) return;
-        noteStr += (k === 'space' ? ' ' : k);
-      }
-      $('noteInput').value = noteStr;
-      updateContinue();
-    }
-  }
-  function updateContinue() {
-    var b = $('continueBtn');
-    var on = noteStr.trim().length > 0;
-    b.disabled = !on;
-    b.classList.toggle('active', on);
-  }
-  function scheduleSearch() {
-    if (searchTimer) clearTimeout(searchTimer);
-    searchTimer = setTimeout(renderResults, 260);
-  }
-  function clearResults() {
-    $('resultsList').innerHTML = '';
-  }
-
-  // 【仅输入框为空的时候加载历史】
-  function loadHistoryList() {
-    console.log('加载历史列表');
-    clearResults();
-    const localIdList = getHistoryCache();
-    if(localIdList && Array.isArray(localIdList) && localIdList.length>0){
-      localIdList.forEach(id=>{
-        const cachedUser = getUserProfileCache(id);
-        const showUser = cachedUser ? cachedUser : makeDemoUser(id);
-        $('resultsList').appendChild(makeRow(showUser));
-      });
-      // 后台异步刷新历史真实头像
-      (async function backgroundRefreshHistoryRealData(){
-        for(const cashtag of localIdList){
-          try{
-            const res = await fetch(API+'/user/lookup/'+encodeURIComponent(cashtag), {signal:AbortSignal.timeout(1800)});
-            const data = await res.json();
-            if(data && data.ok && data.user){
-              setRealUserProfileCache(cashtag, data.user);
-            }
-          }catch(err){continue;}
-        }
-      })();
-    }else{
-      renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-    }
-  }
-
-  // ========== 重点修复这个搜索函数 ==========
-  function renderResults() {
-    var q = searchStr.trim().replace(/^\$/g, '');
-    var seq = ++searchSeq;
-    clearResults();
-
-    // 空输入：加载历史
-    if (!q) {
-      loadHistoryList();
-      return;
-    }
-
-    // 有搜索内容：只做真实lookup，不再加载历史！
-    $('resultsHead').textContent = 'RESULTS';
-    // 先看本地缓存有没有真实数据
-    const cached = getUserProfileCache(q);
-    if(cached){
-      $('resultsList').appendChild(makeRow(cached));
-    }else{
-      // 无缓存，先放兜底占位
-      $('resultsList').appendChild(makeRow(makeDemoUser(q)));
-    }
-
-    // 发起真实接口请求
-    (async function fetchRealSearch(){
-      try{
-        const res = await fetch(API + '/user/lookup/' + encodeURIComponent(q), {signal:AbortSignal.timeout(2200)});
-        const data = await res.json();
-        // 防止旧请求覆盖新输入
-        if(seq !== searchSeq) return;
-        clearResults();
-        if(data && data.ok && data.user){
-          setRealUserProfileCache(q, data.user);
-          $('resultsList').appendChild(makeRow(data.user));
-        }else{
-          $('resultsList').appendChild(makeRow(makeDemoUser(q)));
-        }
-      }catch(err){
-        if(seq !== searchSeq) return;
-        clearResults();
-        $('resultsList').appendChild(makeRow(makeDemoUser(q)));
-      }
-    })();
-  }
-
-  function pickUser(user) {
-    targetUser = user;
-    noteStr = '';
-    $('noteInput').value = '';
-    $('noteName').textContent = user.nickname || user.uid;
-    $('confirmName').textContent = user.nickname || user.uid;
-    setAvatarBox($('noteAvatar'), user);
-    setAvatarBox($('confirmAvatar'), user);
-    updateContinue();
-    closeKb();
-    showSheet('noteSheet');
-    saveHistory(user.uid);
-  }
-
-  function saveHistory(id) {
-    var clean = String(id || '').replace(/^\$/g, '').trim();
-    if (!clean) return;
-    fetch(API + '/user/save-search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: uid, searchId: clean })
-    })
-    .then(res=>res.json())
-    .then(ret=>{
-      let cache = getHistoryCache() || [];
-      cache = cache.filter(x=>x!==clean);
-      cache.unshift(clean);
-      setHistoryCache(cache);
-    })
-    .catch(err=>{console.error("save‑search err",err);});
-  }
-
-  function pressNum(k) {
-    if (k === 'del') {
-      amountStr = amountStr.length > 1 ? amountStr.slice(0, -1) : '0';
-    } else if (k === '.') {
-      if (amountStr.indexOf('.') === -1) amountStr += '.';
-    } else {
-      if (amountStr.indexOf('.') !== -1) {
-        var dec = amountStr.split('.')[1] || '';
-        if (dec.length >= 2) return;
-      }
-      if (amountStr === '0') amountStr = k;
-      else {
-        var digits = amountStr.replace('.', '');
-        if (digits.length >= 10) return;
-        amountStr += k;
-      }
-    }
-    renderAmount();
-  }
-
-  function showToast(amt, name) {
-    $('toastBody').textContent = 'You paid ' + name + ' $' + money2(amt);
-    $('toast').classList.add('show');
-    setTimeout(function () { $('toast').classList.remove('show'); }, 2000);
-  }
-  function showSuccess(amt) {
-    $('successText').textContent = 'You sent $' + money2(amt) + ' to ' + (targetUser ? (targetUser.nickname || targetUser.uid) : '');
-    $('successScreen').classList.add('open');
-    $('homeScreen').style.display = 'none';
-    setTimeout(function () { showToast(amt, targetUser ? (targetUser.nickname || targetUser.uid) : ''); }, 20);
-  }
-  function showAlert() { $('alertMask').classList.add('open'); }
-  function showKickMask() { $('kickMask').classList.add('open'); }
-  function checkKick() {
-    fetch(API + '/user/check-kick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: uid, clientId: clientId })
-    })
-      .then(r => r.json())
-      .then(d => { if(d && d.kicked){ if(kickTimer)clearInterval(kickTimer); showKickMask();} })
-      .catch(() => {});
-  }
-  function boot() {
-    buildKb();
-    renderAmount();
-    renderBalance();
-    renderMe();
-    updateContinue();
-    fetch(API + '/user/info', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: uid, clientId: clientId })
-    })
-      .then(r => r.json())
-      .then(function (d) {
-        if (!d || !d.ok) {
-          if (d && /kicked|Session/.test(d.msg || '')) { showKickMask(); }
-          else { localStorage.removeItem('uid'); localStorage.removeItem('clientId'); location.replace('/'); }
-          return;
-        }
-        balance = Number(d.user.balance) || 0;
-        myNickname = d.user.nickname || d.user.uid;
-        renderBalance();
-        renderMe();
-      })
-      .catch(function () {});
-    kickTimer = setInterval(checkKick, 9000);
-  }
-  function bind() {
-    $('numkeypad').addEventListener('click', function (e) {
-      var btn = e.target.closest('.numkey');
-      if (!btn) return;
-      var key = btn.dataset.key;
-      pressNum(key);
-    });
-    $('payEntry').addEventListener('click', function () {
-      var v = parseFloat(amountStr);
-      if (!v || v <= 0) {
-        amountStr = '0';
-        renderAmount();
-        return;
-      }
-      searchStr = '';
-      $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
-      showSheet('searchSheet');
-      loadHistoryList();
-    });
-    $('closeSearch').addEventListener('click', function () { hideSheets(); });
-    $('searchInput').addEventListener('click', function () { openKb('search'); });
-    $('searchClear').addEventListener('click', function (e) {
-      e.stopPropagation();
-      searchStr = '';
-      $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
-      loadHistoryList();
-    });
-    $('noteInput').addEventListener('click', function () { openKb('note'); });
-    $('sheetLayer').addEventListener('pointerdown', function (e) {
-      if (!kbOpen) return;
-      if (e.target.closest('.softKb')) return;
-      if (e.target.id === 'searchInput' || e.target.id === 'noteInput') return;
-      closeKb();
-    });
-    $('noteBack').addEventListener('click', function () {
-      closeKb();
-      showSheet('searchSheet');
-      loadHistoryList();
-    });
-    $('continueBtn').addEventListener('click', function () {
-      if (!noteStr.trim()) return;
-      closeKb();
-      saveHistory(targetUser.uid);
-      $('confirmNote').textContent = noteStr;
-      renderBalance();
-      showSheet('confirmSheet');
-    });
-    $('styleBtn').addEventListener('click', function () {
-      if (noteStr.indexOf('✨') !== -1) return;
-      noteStr = noteStr + ' ✨';
-      $('confirmNote').textContent = noteStr;
-    });
-    $('confirmPay').addEventListener('click', function () {
-      if (payBusy) return;
-      var amt = parseFloat(amountStr);
-      if (!amt || amt <= 0) { hideSheets(); return; }
-      if (Number(balance) < amt) {
-        showAlert();
-        return;
-      }
-      payBusy = true;
-      showSheet('loadingSheet');
-      var wait = 2000 + Math.random() * 1000;
-      setTimeout(function () {
-        fetch(API + '/user/pay', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            uid: uid,
-            clientId: clientId,
-            amount: amt,
-            remark: noteStr,
-            targetUid: targetUser ? targetUser.uid : ''
-          })
-        })
-          .then(r => r.json())
-          .then(function (d) {
-            payBusy = false;
-            if (!d || !d.ok) {
-              hideSheets();
-              if (d && /Insufficient/.test(d.msg || '')) {
-                if (d.balance != null) balance = Number(d.balance);
-                renderBalance();
-                showAlert();
-              } else if (d && /kicked|Session/.test(d.msg || '')) {
-                showKickMask();
-              }
-              return;
-            }
-            balance = Number(d.balance) || 0;
-            renderBalance();
-            hideSheets();
-            showSuccess(amt);
-          })
-          .catch(function () {
-            payBusy = false;
-            hideSheets();
-            alert('Network error, payment failed, balance unchanged.');
-          });
-      }, wait);
-    });
-    $('alertOk').addEventListener('click', function () {
-      $('alertMask').classList.remove('open');
-      showSheet('confirmSheet');
-    });
-    $('kickOk').addEventListener('click', function () {
-      localStorage.removeItem('uid');
-      localStorage.removeItem('clientId');
-      location.replace('/');
-    });
-    $('receiptBtn').addEventListener('click', function () {
-      var name = targetUser ? (targetUser.nickname || targetUser.uid) : '';
-      alert('Receipt\n\nTo: ' + name + ' ($' + (targetUser ? targetUser.uid : '') + ')\n' +
-        'Amount: $' + money2(parseFloat(amountStr)) + '\n' +
-        'Note: ' + noteStr + '\n' +
-        'Status: Completed');
-    });
-    $('doneBtn').addEventListener('click', function () {
-      $('successScreen').classList.remove('open');
-      $('homeScreen').style.display = 'flex';
-      amountStr = '0';
-      targetUser = null;
-      noteStr = '';
-      searchStr = '';
-      $('noteInput').value = '';
-      $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
-      updateContinue();
-      renderAmount();
-      renderBalance();
-      hideSheets();
-    });
-  }
-  window.addEventListener('load', function () {
-    bind();
-    boot();
   });
-})();
+});
+
+/* 支付 */
+app.post('/api/user/pay', (req, res) => {
+  const { uid, clientId, amount, remark, targetUid } = req.body;
+const user = users.find(u => u.uid === uid);
+  if (!user) return res.json({ ok: false, msg: 'User not found' });
+
+  const s = sessions[uid];
+  if (!s || s.clientId !== clientId || s.kicked) {
+    return res.json({ ok: false, msg: 'Session expired' });
+  }
+
+  const payAmount = Number(amount);
+  if (!payAmount || payAmount <= 0) {
+    return res.json({ ok: false, msg: 'Invalid amount' });
+  }
+  if (user.balance < payAmount) {
+    return res.json({ ok: false, msg: 'Insufficient balance', balance: user.balance });
+  }
+
+  const target = users.find(u => u.uid === targetUid);
+  user.balance = Number((user.balance - payAmount).toFixed(2));
+
+  const record = {
+    recordId: 'TX' + Date.now() + Math.floor(Math.random() * 1000),
+    time: now(),
+    timestamp: Date.now(),
+    uid: user.uid,
+    nickname: user.nickname,
+    amount: payAmount,
+    remark: remark || '',
+    targetUid: targetUid,
+    targetNick: target ? target.nickname : targetUid,
+    targetAvatar: target ? target.avatar : '',
+    balanceAfter: user.balance
+};
+  records.push(record);
+
+  return res.json({
+    ok: true,
+    balance: user.balance,
+    record
+  });
+});
+
+/* 我的交易流水 */
+app.get('/api/user/records/:uid', (req, res) => {
+  const list = records
+    .filter(r => r.uid === req.params.uid)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  res.json({ ok: true, list });
+});
+
+/* 搜索历史 */
+app.post('/api/user/save-search', (req, res) => {
+  const { uid, searchId } = req.body;
+  if (!uid || !searchId) return res.json({ ok: false });
+  if (!searchHistory[uid]) searchHistory[uid] = [];
+  searchHistory[uid] = searchHistory[uid].filter(x => x !== searchId);
+  searchHistory[uid].unshift(searchId);
+  if (searchHistory[uid].length > 8) searchHistory[uid].pop();
+  return res.json({ ok: true });
+});
+
+app.get('/api/user/search-history/:uid', (req, res) => {
+  res.json({ ok: true, list: searchHistory[req.params.uid] || [] });
+});
+
+/* ============ 自检接口（部署后先访问这个确认能通） ============ */
+app.get('/api/source-check', async (req, res) => {
+  const tag = String(req.query.tag || 'rose').replace(/^\$+/g, '');
+const start = Date.now();
+  const data = await fetchProfileOnce(tag);
+  res.json({
+    ok: !!data,
+    upstream: AVATAR_API_BASE,
+    timeout: AVATAR_API_TIMEOUT,
+    cost_ms: Date.now() - start,
+    sample_tag: tag,
+    result: data,
+    hint: data ? '数据源正常' : '数据源不通：检查你电脑的 server.py 和 cloudflared 是否在跑、地址是否过期'
+  });
+});
+
+/* ============ 页面路由 ============ */
+app.get('/healthz', (req, res) => res.type('text/plain').send('ok'));
+
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
+app.get('/cash', (req, res) => res.sendFile(path.join(__dirname, 'public/cash.html')));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public/admin.html')));
+
+/* 兜底 */
+app.use((req, res) => res.status(404).send('Not Found'));
+
+/* ============ 启动（显式绑 0.0.0.0，并打印诊断信息） ============ */
+const HOST = '0.0.0.0';
+const server = app.listen(PORT, HOST, function () {
+  console.log('[boot] 1/2 listening on ' + HOST + ':' + PORT);
+  console.log('[boot] 2/2 avatar source = ' + AVATAR_API_BASE);
+});
+
+server.on('error', function (e) {
+  console.error('[boot] listen error: ' + (e && e.message));
+  process.exit(1);
+});
+
+process.on('uncaughtException', function (e) {
+  console.error('[fatal] uncaughtException: ' + (e && e.stack ? e.stack : e));
+});
+
+process.on('unhandledRejection', function (e) {
+  console.error('[fatal] unhandledRejection: ' + (e && e.stack ? e.stack : e));
+});
