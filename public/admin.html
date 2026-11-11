@@ -435,8 +435,7 @@ async function loadUsers() {
   const wrap = document.getElementById('userTableWrap');
   try {
     const res = await fetch(API + '/admin/users');
-    const data = await res.json();
-    const list = data.list || [];
+    const list = await res.json();
     if (list.length === 0) {
       wrap.innerHTML = '<div class="empty">还没有用户，请先在上方创建账号</div>';
       return;
