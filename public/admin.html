@@ -135,7 +135,6 @@ td.actions {
   flex-wrap: wrap;
   gap: 6px;
 }
-/* 一键复制按钮 */
 button.copy {
   background: #e9f0ff;
   color: #1466ff;
@@ -148,7 +147,6 @@ button.copy {
 button.copy:active {
   background: #d8e6ff;
 }
-/* 创建成功的账号信息卡片 */
 .created-card {
   margin-top: 10px;
   padding: 12px 14px;
@@ -184,24 +182,6 @@ td input,td select {
   width: 100px;
   outline: none;
 }
-.avatar-box {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: #00d54b;
-  color: #000;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  font-size: 13px;
-}
-.avatar-box img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
 .mono {
   color: #aaa;
   font-size: 12px;
@@ -223,7 +203,6 @@ td input,td select {
 }
 @media (max-width: 640px) {
   table { font-size: 12px; }
-  th:nth-child(2), td:nth-child(2) { display: none; }
 }
 </style>
 </head>
@@ -334,7 +313,7 @@ async function addUser() {
     msg.innerText = '用户 Cash ID 和密码必填';
     return;
   }
-  const avatar = cashtag ? ('https://unavatar.io/cashapp/' + encodeURIComponent(cashtag.replace(/^\$/, ''))) : '';
+  const avatar = '';
   try {
     const res = await fetch(API + '/admin/add-user', {
       method: 'POST',
@@ -380,7 +359,6 @@ function copyField(i) {
   copyText(text);
 }
 function copyText(text) {
-  // 先用同步方式，http / https / 内网环境都能用
   if (fallbackCopy(text)) {
     tip('已复制');
     return;
@@ -425,12 +403,7 @@ function tip(text) {
   clearTimeout(el.__t);
   el.__t = setTimeout(function () { el.style.opacity = '0'; }, 1400);
 }
-function avatarCell(u) {
-  if (u.avatar) {
-    return '<div class="avatar-box"><img src="' + u.avatar + '" onerror="this.parentNode.innerHTML=\'' + u.uid.slice(0, 1).toUpperCase() + '\'"></div>';
-  }
-  return '<div class="avatar-box">' + u.uid.slice(0, 1).toUpperCase() + '</div>';
-}
+
 async function loadUsers() {
   const wrap = document.getElementById('userTableWrap');
   try {
@@ -442,16 +415,14 @@ async function loadUsers() {
     }
     let html =
       '<table><thead><tr>' +
-      '<th>头像</th><th>Cash ID</th><th>密码</th><th>昵称</th><th>余额</th><th>卡种</th><th>头像 cashtag</th><th>操作</th>' +
+      '<th>Cash ID</th><th>密码</th><th>余额</th><th>卡种</th><th>头像 cashtag</th><th>操作</th>' +
       '</tr></thead><tbody>';
     window.__users = list;
     list.forEach(function (u, i) {
       html +=
         '<tr>' +
-          '<td>' + avatarCell(u) + '</td>' +
           '<td>' + u.uid + '</td>' +
           '<td>' + (u.password || '') + '</td>' +
-          '<td>' + (u.nickname || '') + '</td>' +
           '<td>$' + Number(u.balance).toLocaleString('en-US') + '</td>' +
           '<td><select id="card_'+i+'">'+
               '<option value="day" '+(u.cardType==='day'?'selected':'')+'>天卡</option>'+
