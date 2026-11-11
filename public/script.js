@@ -1,58 +1,9 @@
-const API_BASE = "/api"
-let token = ""
-let deviceId = ""
-let userAccount = null
-let userPayLogs = []
-
-function getDeviceId(){
-  let fp = navigator.userAgent + screen.width + screen.height + navigator.language
-  return btoa(fp).slice(0,64)
-}
-deviceId = getDeviceId()
-
-async function userLogin(){
-  const username = document.getElementById("userName").value
-  const password = document.getElementById("userPwd").value
-  const res = await fetch(`${API_BASE}/user/login`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({username,password,deviceId})
-  })
-  const data = await res.json()
-  if(!data.ok){
-    alert(data.msg)
-    return
-  }
-  token = data.token
-  userAccount = data.account
-  userPayLogs = data.payLogs
-  document.getElementById("loginPage").style.display = "none"
-  document.getElementById("app").style.display = "block"
-  renderHome()
-}
-
-async function checkSession(){
-  if(!token) return
-  const res = await fetch(`${API_BASE}/user/info`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({token,deviceId})
-  })
-  const d = await res.json()
-  if(!d.ok){
-    alert("账号已在其他设备登录，会话失效")
-    token = ""
-    document.getElementById("loginPage").style.display = "block"
-    document.getElementById("app").style.display = "none"
-    return
-  }
-  userAccount = d.account
-  userPayLogs = d.payLogs
-  renderHome()
-}
-setInterval(checkSession, 3000)
-
+// ========== 本地模拟数据，本地跑测试用 ==========
 const mockData = {
+  account: {
+    id: "acc_001",
+    balance: 100000.00
+  },
   receiverList: [
     { id: "rose", name: "rose", avatar: "R" },
     { id: "alice", name: "alice", avatar: "A" },
@@ -61,6 +12,7 @@ const mockData = {
 };
 
 const state = {
+  account: { ...mockData.account },
   amount: "",
   receiver: null,
   note: "",
@@ -72,6 +24,7 @@ const pageWrap = $("pageWrap");
 const topNotify = $("topNotification");
 const appRoot = $("app");
 
+// 顶部通知：独立计时器
 function showNotification(payTo, amount) {
   clearTimeout(state.notifyTimer);
   topNotify.querySelector(".notify-text").innerText = `You paid ${payTo} $${amount}.`;
@@ -83,38 +36,14 @@ function showNotification(payTo, amount) {
   }, 2000);
 }
 
-function showBalanceInsufficientAlert() {
-  const overlay = document.createElement("div");
-  overlay.className = "alert-overlay";
-  overlay.innerHTML = `
-    <div class="alert-box">
-      <div class="alert-title">Insufficient Balance</div>
-      <div class="alert-desc">You don't have enough cash balance to send this payment. Add cash first.</div>
-      <button class="alert-btn" onclick="this.closest('.alert-overlay').remove()">OK</button>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-}
-
+// 首页金额键盘
 function renderHome() {
   state.page = "home";
-  let logHtml = ""
-  if(userPayLogs.length === 0){
-    logHtml = `<div style="color:#aaa;padding:10px;text-align:center">暂无支付记录</div>`
-  }else{
-    userPayLogs.forEach(log=>{
-      logHtml += `<div style="padding:8px 12px;border-bottom:1px solid #333;color:#fff;font-size:14px;">
-        <div>${log.time}</div>
-        <div>付给：${log.receiverName}｜金额：$${log.amount.toFixed(2)}</div>
-        <div style="color:#aaa">备注：${log.note || "无"}</div>
-      </div>`
-    })
-  }
   pageWrap.innerHTML = `
   <div class="page-home">
     <div class="home-header">
       <div class="menu-icon">☰</div>
-      <div class="avatar-circle">${userAccount.avatarUrl ? `< img src="${userAccount.avatarUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : userAccount.username.slice(0,1).toUpperCase()}</div>
+      <div class="avatar-circle">U</div>
     </div>
     <div class="amount-display">$${state.amount || "0"}</div>
     <div class="keypad">
@@ -131,10 +60,6 @@ function renderHome() {
       <button class="key-btn" onclick="inputNum('0')">0</button>
       <button class="key-btn" onclick="backspace()">←</button>
       <button class="key-btn key-pay" onclick="goReceiver()">Pay</button>
-    </div>
-    <div style="margin-top:20px;background:#222;border-radius:12px;overflow:hidden">
-      <div style="padding:10px;background:#333;color:#fff;font-weight:bold">历史支付记录</div>
-      ${logHtml}
     </div>
   </div>
   `;
@@ -158,6 +83,7 @@ window.goReceiver = function () {
   renderReceiverSelect();
 };
 
+// 收款人选择页
 window.renderReceiverSelect = function () {
   state.page = "receiver";
   let receiverHtml = "";
@@ -181,13 +107,14 @@ window.selectReceiver = function (id, name, avatar) {
   renderNoteModal();
 };
 
+// 备注弹窗 + 自定义文字键盘（不会唤起系统键盘）
 window.renderNoteModal = function () {
   state.page = "note";
   pageWrap.innerHTML = `
   <div class="page-home">
     <div class="home-header">
       <div class="menu-icon">☰</div>
-      <div class="avatar-circle">${userAccount.avatarUrl ? `< img src="${userAccount.avatarUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : userAccount.username.slice(0,1).toUpperCase()}</div>
+      <div class="avatar-circle">U</div>
     </div>
     <div class="amount-display">$${state.amount || "0"}</div>
     <div class="modal-wrap">
@@ -233,6 +160,7 @@ window.renderNoteModal = function () {
   </div>
   `;
 };
+// 备注输入函数
 window.noteChar = function (ch) {
   state.note += ch;
   renderNoteModal();
@@ -246,13 +174,14 @@ window.goConfirm = function () {
   renderConfirm();
 };
 
+// 确认支付页
 window.renderConfirm = function () {
   state.page = "confirm";
   pageWrap.innerHTML = `
   <div class="page-home">
     <div class="home-header">
       <div class="menu-icon">☰</div>
-      <div class="avatar-circle">${userAccount.avatarUrl ? `< img src="${userAccount.avatarUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : userAccount.username.slice(0,1).toUpperCase()}</div>
+      <div class="avatar-circle">U</div>
     </div>
     <div class="amount-display">$${state.amount || "0"}</div>
     <div class="modal-wrap">
@@ -266,7 +195,7 @@ window.renderConfirm = function () {
       <div class="style-row">+ Style it</div>
       <div class="balance-row">
         <div class="balance-dot">$</div>
-        <div>Cash balance $${Number(userAccount.balance).toFixed(2)}</div>
+        <div>Cash balance $${Number(state.account.balance).toFixed(2)}</div>
       </div>
       <div class="tip-text">Payments can't be canceled once they're sent.</div>
       <button class="pay-btn" onclick="paySubmit()">Pay</button>
@@ -274,40 +203,29 @@ window.renderConfirm = function () {
   </div>
   `;
 };
-window.paySubmit = async function () {
-  const payVal = Number(state.amount);
-  const receiverName = state.receiver.name
-  const note = state.note
+window.paySubmit = function () {
   renderLoading();
-  const res = await fetch(`${API_BASE}/user/pay`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({token,deviceId,amount:payVal,receiverName,note})
-  })
-  const d = await res.json()
-  if(!d.ok){
-    if(d.msg === "余额不足") showBalanceInsufficientAlert()
-    else alert(d.msg)
-    renderHome()
-    return
-  }
-  userAccount.balance = d.balance
-  setTimeout(()=>{
-    const paymentId = "pay_" + Date.now()
-    renderSuccess(paymentId)
+  // 模拟加载 2.5s
+  setTimeout(() => {
+    const payVal = Number(state.amount);
+    // 本地扣余额
+    state.account.balance = state.account.balance - payVal;
+    const paymentId = "pay_" + Date.now();
+    renderSuccess(paymentId);
     setTimeout(() => {
       showNotification(state.receiver.name, state.amount);
     }, 20);
-  },2500)
+  }, 2500);
 };
 
+// 加载页
 window.renderLoading = function () {
   state.page = "loading";
   pageWrap.innerHTML = `
   <div class="page-home">
     <div class="home-header">
       <div class="menu-icon">☰</div>
-      <div class="avatar-circle">${userAccount.avatarUrl ? `< img src="${userAccount.avatarUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : userAccount.username.slice(0,1).toUpperCase()}</div>
+      <div class="avatar-circle">U</div>
     </div>
     <div class="amount-display">$${state.amount || "0"}</div>
     <div class="modal-wrap">
@@ -319,6 +237,7 @@ window.renderLoading = function () {
   `;
 };
 
+// 成功页
 window.renderSuccess = function (paymentId) {
   state.page = "success";
   pageWrap.innerHTML = `
@@ -341,3 +260,6 @@ window.doneAction = function () {
   state.receiver = null;
   renderHome();
 };
+
+// 启动
+renderHome();
