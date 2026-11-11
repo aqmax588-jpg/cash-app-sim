@@ -1,6 +1,6 @@
 /* =========================================================
-Cash App Simulator｜BUG修复完整版
-修复：搜索无兜底、真实头像不加载、历史被兜底覆盖、新输入无法选中
+Cash App Simulator｜真实优先策略
+规则：真实API第一；兜底仅临时显示，不写入缓存；历史后台异步刷新真实资料
 ========================================================= */
 (function () {
   'use strict';
@@ -9,7 +9,7 @@ Cash App Simulator｜BUG修复完整版
   var uid = localStorage.getItem('uid') || '';
   var clientId = localStorage.getItem('clientId') || '';
 
-  // 历史ID列表缓存
+  // 历史ID数组缓存（只存ID顺序，不存头像昵称）
   function getHistoryCache(){
     const str = localStorage.getItem('cash_history_'+uid);
     if(str) return JSON.parse(str);
@@ -19,18 +19,35 @@ Cash App Simulator｜BUG修复完整版
     localStorage.setItem('cash_history_'+uid, JSON.stringify(arr.slice(0,8)));
   }
 
-  // 用户资料缓存：昵称、头像
+  // 【只保存真实接口返回的用户资料，12小时有效期】兜底不进缓存
   function getUserProfileCache(cashtag){
     const key = 'cash_profile_' + cashtag;
     const raw = localStorage.getItem(key);
     if(!raw) return null;
     const obj = JSON.parse(raw);
+    // 过期直接作废
     if(Date.now() - obj.time > 12 * 3600 * 1000) return null;
     return obj.data;
   }
-  function setUserProfileCache(cashtag, data){
+  // 仅真实数据调用此函数存入缓存
+  function setRealUserProfileCache(cashtag, data){
     const key = 'cash_profile_' + cashtag;
-    localStorage.setItem(key, JSON.stringify({ data:data, time:Date.now() }));
+    localStorage.setItem(key, JSON.stringify({
+      data: data,
+      time: Date.now()
+    }));
+  }
+
+  // 兜底对象：仅页面临时渲染，绝不写入localStorage
+  function makeDemoUser(raw) {
+    var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
+    if (!name) name = 'user';
+    return {
+      uid: name,
+      nickname: name.charAt(0).toUpperCase() + name.slice(1),
+      avatar: '',
+      avatarFallback: ''
+    };
   }
 
   if (!uid || !clientId) {
@@ -139,21 +156,6 @@ Cash App Simulator｜BUG修复完整版
     row.addEventListener('click', function () { pickUser(user); });
     return row;
   }
-  // 生成兜底用户，兜底也会缓存
-  function makeDemoUser(raw) {
-    var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
-    if (!name) name = 'user';
-    const cache = getUserProfileCache(name);
-    if(cache) return cache;
-    const demoObj = {
-      uid: name,
-      nickname: name.charAt(0).toUpperCase() + name.slice(1),
-      avatar: '',
-      avatarFallback: ''
-    };
-    setUserProfileCache(name, demoObj);
-    return demoObj;
-  }
   function renderEmptyState(text) {
     var d = document.createElement('div');
     d.className = 'no-hint';
@@ -253,41 +255,61 @@ Cash App Simulator｜BUG修复完整版
     $('resultsList').innerHTML = '';
   }
 
-  // 加载历史列表
+  // 打开历史：先用本地真实缓存快速渲染界面；后台再拉真实接口刷新全部历史ID
   function loadHistoryList() {
-    console.log('====打开搜索页，加载历史====');
+    console.log('====打开搜索页，加载历史，真实优先====');
     clearResults();
-    const localIds = getHistoryCache();
-    if(localIds && Array.isArray(localIds) && localIds.length>0){
-      localIds.forEach(id=>{
-        const cached = getUserProfileCache(id);
-        const user = cached ? cached : makeDemoUser(id);
-        $('resultsList').appendChild(makeRow(user));
-      })
+    const localIdList = getHistoryCache();
+
+    // 第一步：立刻用本地已缓存的真实数据渲染页面；没有缓存就先用兜底临时显示
+    if(localIdList && Array.isArray(localIdList) && localIdList.length>0){
+      localIdList.forEach(id=>{
+        const cachedUser = getUserProfileCache(id);
+        const showUser = cachedUser ? cachedUser : makeDemoUser(id);
+        $('resultsList').appendChild(makeRow(showUser));
+      });
     }else{
       renderEmptyState('No recent contacts. Type a $Cashtag to search.');
     }
-    //后台同步后端历史
-    (async function backgroundSyncHistory(){
+
+    // 第二步【重点】后台异步：批量刷新历史列表每一个ID的真实资料，拿到真实就覆盖页面
+    (async function backgroundRefreshHistoryRealData(){
       try {
-        const url = API + '/user/search-history/' + encodeURIComponent(uid);
-        const resHist = await fetch(url, {signal:AbortSignal.timeout(3000)});
-        const dataHist = await resHist.json();
-        if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) return;
-        setHistoryCache(dataHist.list.slice(0,8));
+        // 先拿后端最新的ID顺序列表
+        const respHis = await fetch(API + '/user/search-history/' + encodeURIComponent(uid), {signal:AbortSignal.timeout(3000)});
+        const hisJson = await respHis.json();
+        if(!hisJson || !hisJson.ok || !Array.isArray(hisJson.list)) return;
+        const freshIdList = hisJson.list.slice(0,8);
+        setHistoryCache(freshIdList);
+
+        // 逐个请求lookup拿真实资料
+        for(const cashtag of freshIdList){
+          try{
+            const res = await fetch(API+'/user/lookup/'+encodeURIComponent(cashtag), {signal:AbortSignal.timeout(1800)});
+            const data = await res.json();
+            if(data && data.ok && data.user){
+              // 拿到真实，存入缓存
+              setRealUserProfileCache(cashtag, data.user);
+            }
+          }catch(err){
+            // 单个id请求失败，跳过，继续下一个，不阻塞整体
+            continue;
+          }
+        }
+        // 全部刷新完，重新渲染完整真实列表
         clearResults();
-        dataHist.list.slice(0,8).forEach(id=>{
-          const cached = getUserProfileCache(id);
-          const user = cached ? cached : makeDemoUser(id);
-          $('resultsList').appendChild(makeRow(user));
-        })
-      }catch(err){
-        console.log("后台同步历史超时",err);
+        freshIdList.forEach(id=>{
+          const cu = getUserProfileCache(id);
+          const su = cu ? cu : makeDemoUser(id);
+          $('resultsList').appendChild(makeRow(su));
+        });
+      }catch(e){
+        console.log("后台刷新历史真实数据失败，继续使用当前显示", e);
       }
     })();
   }
 
-  // 【重点修复】搜索逻辑，新输入一定有结果，可点击
+  // 搜索输入框逻辑：优先请求真实接口，失败才兜底
   function renderResults() {
     var q = searchStr.trim().replace(/^\$/g, '');
     var seq = ++searchSeq;
@@ -297,34 +319,36 @@ Cash App Simulator｜BUG修复完整版
       return;
     }
     $('resultsHead').textContent = 'RESULTS';
-    // 优先读本地缓存
+    // 先看本地有没有真实缓存
     const cached = getUserProfileCache(q);
     if(cached){
       $('resultsList').appendChild(makeRow(cached));
-      return;
+    }else{
+      // 无缓存，先放兜底占位，同时请求真实接口
+      $('resultsList').appendChild(makeRow(makeDemoUser(q)));
     }
-    // 请求lookup接口
-    fetch(API + '/user/lookup/' + encodeURIComponent(q))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (seq !== searchSeq) return;
+
+    // 请求真实接口，拿到就覆盖页面条目
+    (async function fetchRealSearch(){
+      try{
+        const res = await fetch(API + '/user/lookup/' + encodeURIComponent(q), {signal:AbortSignal.timeout(1800)});
+        const data = await res.json();
+        if(seq !== searchSeq) return;
         clearResults();
-        if (data && data.ok && data.user) {
-          setUserProfileCache(q, data.user);
+        if(data && data.ok && data.user){
+          setRealUserProfileCache(q, data.user);
           $('resultsList').appendChild(makeRow(data.user));
-        } else {
-          // 接口失败/查无此人 → 兜底
-          const demo = makeDemoUser(q);
-          $('resultsList').appendChild(makeRow(demo));
+        }else{
+          $('resultsList').appendChild(makeRow(makeDemoUser(q)));
         }
-      })
-      .catch(function () {
-        if (seq !== searchSeq) return;
+      }catch(err){
+        if(seq !== searchSeq) return;
         clearResults();
-        const demo = makeDemoUser(q);
-        $('resultsList').appendChild(makeRow(demo));
-      });
+        $('resultsList').appendChild(makeRow(makeDemoUser(q)));
+      }
+    })();
   }
+
   function pickUser(user) {
     targetUser = user;
     noteStr = '';
@@ -338,6 +362,7 @@ Cash App Simulator｜BUG修复完整版
     showSheet('noteSheet');
     saveHistory(user.uid);
   }
+
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
     if (!clean) return;
