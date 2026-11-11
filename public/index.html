@@ -1,169 +1,84 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimum-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#00D54F">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Cash App · Login</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial‑scale=1.0"/>
+<meta name="theme‑color" content="#00D54B"/>
+<title>Cash App</title>
 <style>
-html {
-  /* 手机顶部/底部安全区背景 = 绿色（想改黑色就把这行换成 #000） */
-  background: #00D54F;
-  -webkit-text-size-adjust: 100%;
-}
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-}
-body {
-  background: #000;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
-  touch-action: manipulation;
-}
-.box {
-  width: 100%;
-  max-width: 380px;
-}
-.logo {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
-  background: #00d54b;
-  color: #000;
-  font-size: 30px;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 18px;
-}
-h2 {
-  text-align: center;
-  font-size: 22px;
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-.subtitle {
-  text-align: center;
-  color: #8a8a8e;
-  font-size: 14px;
-  margin-bottom: 26px;
-}
-label {
-  display: block;
-  font-size: 13px;
-  color: #8a8a8e;
-  margin: 14px 0 6px;
-}
-input {
-  width: 100%;
-  padding: 15px 16px;
-  border-radius: 12px;
-  border: none;
-  background: #1c1c1e;
-  color: #fff;
-  font-size: 16px;
-  outline: none;
-}
-input::placeholder {
-  color: #5a5a5e;
-}
-button {
-  width: 100%;
-  padding: 16px;
-  margin-top: 22px;
-  background: #00d54b;
-  color: #000;
-  border: none;
-  border-radius: 12px;
-  font-weight: 700;
-  font-size: 16px;
-  cursor: pointer;
-}
-button:active {
-  background: #00b840;
-}
-.msg {
-  margin-top: 14px;
-  text-align: center;
-  font-size: 14px;
-  min-height: 20px;
-  color: #ff6b6b;
-}
+*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+html,body{height:100%;background:#0d0d0d;color:#fff;}
+.wrap{max-width:420px;margin:0 auto;padding:40px 20px;height:100%;display:flex;flex-direction:column;justify-content:center;}
+.logo{text-align:center;margin-bottom:36px;}
+.logo h1{font-size:28px;color:#00d54b;}
+.panel{background:#171717;border:1px solid #242424;border-radius:16px;padding:24px;}
+.field{margin-bottom:16px;}
+.field label{display:block;font-size:13px;color:#aaa;margin-bottom:6px;}
+.field input{width:100%;padding:13px 14px;border-radius:10px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff;font-size:15px;outline:none;}
+.field input::placeholder{color:#555;}
+.btn{width:100%;padding:13px;border:none;border-radius:10px;background:#00d54b;color:#000;font-weight:700;font-size:15px;cursor:pointer;}
+.btn:active{background:#00b840;}
+.msg{margin-top:14px;font-size:13px;text-align:center;min-height:20px;}
+.msg.err{color:#ff6b6b;}
+.msg.ok{color:#00d54b;}
 </style>
 </head>
 <body>
-<div class="box">
-  <div class="logo">$</div>
-  <h2>Sign in to Cash App</h2>
-  <div class="subtitle">Use the Cash ID created by admin</div>
-  <label>Cash ID</label>
-  <input id="uid" placeholder="e.g. rose" autocomplete="off">
-  <label>Password</label>
-  <input id="pwd" type="password" placeholder="Your password">
-  <button onclick="login()">Sign In</button>
-  <div class="msg" id="msg"></div>
+<div class="wrap">
+  <div class="logo">
+    <h1>Cash App</h1>
+  </div>
+  <div class="panel">
+    <div class="field">
+      <label>Cash ID</label>
+      <input id="uidInput" placeholder="输入你的 Cash ID" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input id="pwdInput" type="password" placeholder="输入密码" autocomplete="new‑password" />
+    </div>
+    <button class="btn" onclick="doLogin()">登录</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
 </div>
+
 <script>
-function newClientId() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-async function login() {
-  const uid = document.getElementById('uid').value.trim();
-  const pwd = document.getElementById('pwd').value.trim();
-  const msgBox = document.getElementById('msg');
-  msgBox.innerText = '';
-  if (!uid || !pwd) {
-    msgBox.innerText = 'Please enter Cash ID and password';
+const API="/api";
+let clientId = localStorage.getItem("clientId") || ("cli_"+Date.now()+"_"+Math.random().toString(36));
+localStorage.setItem("clientId",clientId);
+
+async function doLogin(){
+  const uid = document.getElementById("uidInput").value.trim();
+  const pwd = document.getElementById("pwdInput").value.trim();
+  const msgBox = document.getElementById("loginMsg");
+  msgBox.className="msg";
+  msgBox.innerText="";
+  if(!uid||!pwd){
+    msgBox.className="msg err";
+    msgBox.innerText="请填写账号和密码";
     return;
   }
-  const clientId = newClientId();
-  try {
-    const res = await fetch('/api/user/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: uid, password: pwd, clientId: clientId })
+  try{
+    const res = await fetch(API+"/user/login",{
+      method:"POST",
+      headers:{"Content‑Type":"application/json"},
+      body:JSON.stringify({uid,password:pwd,clientId})
     });
     const data = await res.json();
-    if (!data.ok) {
-      msgBox.innerText = data.msg || 'Login failed';
+    if(!data.ok){
+      msgBox.className="msg err";
+      msgBox.innerText=data.msg;
       return;
     }
-    localStorage.setItem('uid', data.user.uid);
-    localStorage.setItem('clientId', clientId);
-    localStorage.setItem('userInfo', JSON.stringify(data.user));
-    location.href = '/cash';
-  } catch (e) {
-    msgBox.innerText = 'Network error, please retry';
+    //登录成功保存本地存储用于cash.html自动登录
+    localStorage.setItem("loginUid",uid);
+    localStorage.setItem("loginClientId",clientId);
+    window.location.href="/cash";
+  }catch(e){
+    msgBox.className="msg err";
+    msgBox.innerText="网络异常，请重试";
   }
 }
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter') login();
-});
-//页面加载自动登录
-window.addEventListener('DOMContentLoaded',async ()=>{
-  const savedUid = localStorage.getItem('uid');
-  const savedClientId = localStorage.getItem('clientId');
-  if(savedUid && savedClientId){
-    const res = await fetch("/api/user/info",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({uid:savedUid,clientId:savedClientId})
-    })
-    const d = await res.json();
-    if(d.ok){
-      location.href="/cash";
-    }
-  }
-})
 </script>
 </body>
 </html>
