@@ -1,7 +1,6 @@
 /* =========================================================
-Cash App Simulator 【MongoDB最终稳定版】
-修复：历史列表先拿全部数据再渲染，避免DOM更新丢失；修复数字键盘；保留全部原有业务
-server.js无需修改
+Cash App Simulator 【修复：search-history不发起请求】
+特征：打开Pay弹窗，控制台一定打印【打开搜索页，开始加载历史】，并且Network出现 /user/search-history
 ========================================================= */
 (function () {
   'use strict';
@@ -237,38 +236,38 @@ server.js无需修改
     $('resultsList').innerHTML = '';
   }
 
-  // ===加载历史：全部拿到完整用户对象，再一次性渲染DOM===
   async function loadHistoryList() {
-    console.log('loadHistoryList start');
+    console.log('===== 打开搜索页，开始加载历史 =====');
     clearResults();
     try {
-      const resHist = await fetch(API + '/user/search-history/' + encodeURIComponent(uid));
+      const url = API + '/user/search-history/' + encodeURIComponent(uid);
+      console.log('请求地址：', url);
+      const resHist = await fetch(url, {signal: AbortSignal.timeout(5000)});
       const dataHist = await resHist.json();
-      console.log('history backend return', dataHist);
+      console.log('history后端返回：', dataHist);
       if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) {
         renderEmptyState('No recent contacts. Type a $Cashtag to search.');
         return;
       }
       const idArr = dataHist.list.slice(0,8);
-      // 并行全部lookup拿到完整user对象
       const promiseList = idArr.map(async (id)=>{
         try{
-          const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id));
+          const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id),{signal: AbortSignal.timeout(5000)});
           const d = await r.json();
           if(d && d.ok && d.user) return d.user;
           return makeDemoUser(id);
         }catch(e){
+          console.log('lookup单个用户失败',id,e);
           return makeDemoUser(id);
         }
       });
       const userList = await Promise.all(promiseList);
-      //全部拿完，一次性渲染DOM
       userList.forEach(u=>{
         $('resultsList').appendChild(makeRow(u));
       });
     }catch(err){
       clearResults();
-      console.error('loadHistoryList error',err);
+      console.error('loadHistoryList 整体报错：',err);
       renderEmptyState('No recent contacts. Type a $Cashtag to search.');
     }
   }
@@ -278,6 +277,7 @@ server.js无需修改
     var seq = ++searchSeq;
     clearResults();
     if (!q) {
+      console.log('输入框为空，加载历史列表');
       loadHistoryList();
       return;
     }
@@ -406,7 +406,6 @@ server.js无需修改
   }
 
   function bind() {
-    // 数字金额键盘
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
       if (!btn) return;
@@ -414,7 +413,7 @@ server.js无需修改
       pressNum(key);
     });
 
-    // Pay按钮
+    // Pay按钮这里，【先打开弹窗，再强制加载历史】
     $('payEntry').addEventListener('click', function () {
       var v = parseFloat(amountStr);
       if (!v || v <= 0) {
@@ -426,6 +425,7 @@ server.js无需修改
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
       showSheet('searchSheet');
+      // 强制调用加载历史
       loadHistoryList();
     });
 
