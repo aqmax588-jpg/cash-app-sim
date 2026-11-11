@@ -37,7 +37,7 @@
   // 真实资料缓存：只存 lookup 成功返回的真实用户，12 小时有效期；兜底不进这里
   function getUserProfileCache(tag) {
     try {
-      var raw = localStorage.getItem('cash_profile_' + tag);
+      var raw = localStorage.getItem('cash_profile_v2_' + tag);
       if (!raw) return null;
       var obj = JSON.parse(raw);
       if (Date.now() - obj.time > 12 * 3600 * 1000) return null;
@@ -46,7 +46,7 @@
   }
   function setRealUserProfileCache(tag, data) {
     try {
-      localStorage.setItem('cash_profile_' + tag, JSON.stringify({ data: data, time: Date.now() }));
+      localStorage.setItem('cash_profile_v2_' + tag, JSON.stringify({ data: data, time: Date.now() }));
     } catch (e) {}
   }
 
@@ -74,7 +74,7 @@ var amountStr = '0';
   var kickTimer = null;
 
   var KBH = 248;
-  var LOOKUP_TIMEOUT = 1200; // 真实接口超时 1200ms，超时先上兜底
+  var LOOKUP_TIMEOUT = 9000; // 仅防请求永久悬挂；1.2 秒只是先上兜底的视觉节点，不中断请求
   var SHEETS = ['searchSheet', 'noteSheet', 'confirmSheet', 'loadingSheet'];
 
   /* ---------------- 工具 ---------------- */
@@ -102,14 +102,16 @@ var amountStr = '0';
     return (t.charAt(0) || '?').toUpperCase();
 }
 
-  /* 带超时的 lookup 请求（兼容老 WebView，手动 AbortController） */
+  /* 带超时的 lookup 请求
+     注意：这里超时只用于防止请求永久悬挂（9 秒），不做 1.2 秒中断。
+     1.2 秒只是"先上兜底占位"的视觉时间点，真实结果回来后原地替换。 */
   function fetchLookup(tag) {
     return new Promise(function (resolve, reject) {
       var ctrl = ('AbortController' in window) ? new AbortController() : null;
       var timer = setTimeout(function () {
         if (ctrl) ctrl.abort();
         reject(new Error('timeout'));
-      }, LOOKUP_TIMEOUT);
+      }, 9000);
 
       fetch(API + '/user/lookup/' + encodeURIComponent(tag), ctrl ? { signal: ctrl.signal } : {})
         .then(function (r) { return r.json(); })
@@ -124,8 +126,8 @@ var amountStr = '0';
     $('searchTitle').textContent = 'Pay $' + money(amountStr);
     $('searchPayTo').textContent = 'Pay ' + money(amountStr) + ' to';
     $('notePayTo').textContent = 'Pay ' + money(amountStr) + ' to';
-    $('confirmPayTo').textContent = 'Pay ' + money(amountStr) + ' to';
-}
+$('confirmPayTo').textContent = 'Pay ' + money(amountStr) + ' to';
+  }
 
   function renderBalance() {
     $('balanceText').textContent = '$' + money2(balance);
@@ -155,10 +157,10 @@ var amountStr = '0';
           img.src = user.avatarFallback;
           return;
         }
-        if (img.parentNode) img.parentNode.removeChild(img);
+if (img.parentNode) img.parentNode.removeChild(img);
       };
       br.appendChild(img);
-}
+    }
     return br;
   }
 
@@ -191,10 +193,10 @@ var amountStr = '0';
   }
 
   function hideSheets() {
-    closeKb();
+closeKb();
     $('sheetLayer').classList.remove('open');
     SHEETS.forEach(function (id) { $(id).classList.remove('open'); });
-}
+  }
 
   /* ---------------- 自定义键盘 ---------------- */
   function setKbHeight(h) {
@@ -221,9 +223,9 @@ var amountStr = '0';
         if (k === 'del') b.className += ' kb-del';
         if (k === 'space') b.className += ' kb-space';
         b.textContent = k === 'del' ? '⌫' : (k === 'ok' ? '✓' : (k === 'space' ? 'space' : k));
-        b.addEventListener('click', function (e) {
+b.addEventListener('click', function (e) {
           e.preventDefault();
-e.stopPropagation();
+          e.stopPropagation();
           onKbKey(k);
         });
         r.appendChild(b);
@@ -238,14 +240,48 @@ e.stopPropagation();
     setKbHeight(KBH);
     $('softKb').classList.add('open');
     $('searchSheet').classList.toggle('compact', kind === 'search');
+    if (kind === 'search') startSearchWatch();   // 点搜索框/键盘时启动输入监控
   }
 
   function closeKb() {
+    syncSearchInput();               // 收键盘前再核对一次输入框内容
+    stopSearchWatch();
     kbOpen = false;
     kbTarget = null;
     setKbHeight(0);
     $('softKb').classList.remove('open');
     $('searchSheet').classList.remove('compact');
+  }
+
+  /* ---------------- 搜索框实时监控 ----------------
+     不依赖键盘按键事件：只要输入框里的内容变了，
+     立刻同步到 searchStr 并发起真实数据请求。
+     覆盖：自绘键盘、系统键盘残留、粘贴、外部改值等所有情况。 */
+  var searchWatchTimer = null;
+
+  function syncSearchInput() {
+    var el = $('searchInput');
+    if (!el) return;
+var v = String(el.value || '');
+    if (v.length > 22) { v = v.slice(0, 22); el.value = v; }
+    if (v === searchStr) return;          // 没变，什么都不做
+
+    searchStr = v;
+    $('searchBox').classList.toggle('has-value', searchStr.length > 0);
+    scheduleSearch();                     // 值一变，150ms 防抖后立刻请求真实数据
+  }
+
+  function startSearchWatch() {
+    stopSearchWatch();
+    syncSearchInput();                    // 启动瞬间先检查一次
+    searchWatchTimer = setInterval(syncSearchInput, 200);  // 每 200ms 实时检测
+  }
+
+  function stopSearchWatch() {
+    if (searchWatchTimer) {
+      clearInterval(searchWatchTimer);
+      searchWatchTimer = null;
+    }
   }
 
   function onKbKey(k) {
@@ -257,13 +293,13 @@ e.stopPropagation();
       if (searchStr.length > 22) searchStr = searchStr.slice(0, 22);
       $('searchInput').value = searchStr;
       $('searchBox').classList.toggle('has-value', searchStr.length > 0);
-      scheduleSearch();
+scheduleSearch();
       return;
     }
 
     if (kbTarget === 'note') {
       if (k === 'del') noteStr = noteStr.slice(0, -1);
-else {
+      else {
         if (noteStr.length >= 24) return;
         noteStr += (k === 'space' ? ' ' : k);
       }
@@ -295,13 +331,23 @@ else {
     n.textContent = user.nickname || user.uid;
     var t = document.createElement('div');
     t.className = 'result-tag';
-    t.textContent = '$' + String(user.uid || '').replace(/^\$/g, '');
+t.textContent = '$' + String(user.uid || '').replace(/^\$/g, '');
 
     info.appendChild(n);
     info.appendChild(t);
     row.appendChild(info);
-row.addEventListener('click', function () { pickUser(user); });
+
+    row.addEventListener('click', function () { pickUser(user); });
     return row;
+  }
+
+  // 按 cashtag 找页面上的行（遍历比对，避免特殊字符破坏选择器）
+  function findRowByTag(tag) {
+    var nodes = $('resultsList').querySelectorAll('.result-row');
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].dataset.tag === tag) return nodes[i];
+    }
+    return null;
   }
 
   // 原地更新一行（不清空重建，避免列表闪烁）
@@ -314,7 +360,7 @@ row.addEventListener('click', function () { pickUser(user); });
     if (tagEl) tagEl.textContent = '$' + String(user.uid || '').replace(/^\$/g, '');
     rowEl.onclick = null;
     rowEl.addEventListener('click', function () { pickUser(user); });
-  }
+}
 
   /* 兜底用户：随机昵称，仅临时渲染，绝不写入本地缓存 */
   function makeDemoUser(raw) {
@@ -327,7 +373,7 @@ row.addEventListener('click', function () { pickUser(user); });
       avatar: '',
       avatarFallback: ''
     };
-}
+  }
 
   function renderEmptyState(text) {
     var d = document.createElement('div');
@@ -338,22 +384,24 @@ row.addEventListener('click', function () { pickUser(user); });
 
   function scheduleSearch() {
     if (searchTimer) clearTimeout(searchTimer);
-    searchTimer = setTimeout(renderResults, 150); // 防抖压到 150ms，触发更快
+    searchTimer = setTimeout(renderResults, 300); // 停顿 300ms 再请求，避免每打一个字都打一次上游
   }
 
   function clearResults() {
     $('resultsList').innerHTML = '';
   }
 
-  /* 把后端返回的 raw user 规整成前端对象，并写入真实资料缓存 */
-  function normalizeReal(tag, u) {
+  /* 把后端返回的 raw user 规整成前端对象
+     关键：只有后端 source 不是 fallback（真拿到真实资料）才写缓存，
+     否则假数据会霸占 12 小时缓存，之后永远不再请求真实资料。 */
+  function normalizeReal(tag, u, source) {
     var real = {
       uid: u.uid || tag,
       nickname: u.nickname || tag,
-      avatar: u.avatar || '',
+avatar: u.avatar || '',
       avatarFallback: u.avatarFallback || ''
     };
-    setRealUserProfileCache(tag, real);
+    if (source !== 'fallback') setRealUserProfileCache(tag, real);
     return real;
   }
 
@@ -367,7 +415,7 @@ row.addEventListener('click', function () { pickUser(user); });
       renderEmptyState('No recent contacts. Type a $Cashtag to search.');
     } else {
       localIds.forEach(function (tag) {
-var cached = getUserProfileCache(tag);
+        var cached = getUserProfileCache(tag);
         var showUser = cached ? cached : makeDemoUser(tag);
         $('resultsList').appendChild(makeRow(showUser, tag));
       });
@@ -380,7 +428,7 @@ var cached = getUserProfileCache(tag);
         var resHis = await fetch(API + '/user/search-history/' + encodeURIComponent(uid));
         var his = await resHis.json();
         if (his && his.ok && Array.isArray(his.list)) {
-          ids = his.list.slice(0, 8);
+ids = his.list.slice(0, 8);
           setHistoryCache(ids);
           // 后端顺序变了，按最新顺序重绘一次（仍走本地缓存/兜底，不阻塞）
           clearResults();
@@ -394,12 +442,12 @@ var cached = getUserProfileCache(tag);
 
       // 并发请求所有缺失真实资料的 ID，拿到后原地更新对应行
       var tasks = ids.map(function (tag) {
-if (getUserProfileCache(tag)) return Promise.resolve();
+        if (getUserProfileCache(tag)) return Promise.resolve();
         return fetchLookup(tag)
           .then(function (d) {
-            if (d && d.ok && d.user) {
-              var real = normalizeReal(tag, d.user);
-              var row = $('resultsList').querySelector('.result-row[data-tag="' + tag + '"]');
+            if (d && d.ok && d.user && d.source !== 'fallback') {
+              var real = normalizeReal(tag, d.user, d.source);
+              var row = findRowByTag(tag);
               if (row) updateRowDom(row, real);
             }
           })
@@ -410,7 +458,7 @@ if (getUserProfileCache(tag)) return Promise.resolve();
   }
 
   /* ---------------- 搜索 ---------------- */
-  function renderResults() {
+function renderResults() {
     var q = searchStr.trim().replace(/^\$/g, '');
     var seq = ++searchSeq;
     clearResults();
@@ -430,22 +478,45 @@ if (getUserProfileCache(tag)) return Promise.resolve();
       return;
     }
 
-    // 无缓存：先上兜底占位，后台请求真实接口，1200ms 超时；真实回来原地更新
-$('resultsList').appendChild(makeRow(makeDemoUser(q), q));
+    // 无缓存：立刻上兜底占位，同时后台请求真实接口；真实一回来就原地替换这一行
+    $('resultsList').appendChild(makeRow(makeDemoUser(q), q));
 
-    fetchLookup(q)
+    // 只有 2 个字符以上才真发请求，避免打一个字就打一次上游（防风控）
+    if (q.length < 2) return;
+
+    requestRealLookup(q, seq, 0);
+  }
+
+  /* 请求真实资料：没拿到真实结果时，2.5 秒后自动补一次（第二次通常命后端缓存，秒回真实） */
+  function requestRealLookup(tag, seq, attempt) {
+    fetchLookup(tag)
       .then(function (d) {
-        if (seq !== searchSeq) return;
-        if (d && d.ok && d.user) {
-          var real = normalizeReal(q, d.user);
-          var row = $('resultsList').querySelector('.result-row[data-tag="' + q + '"]');
+        if (seq !== searchSeq) return; // 用户已改成别的输入，丢弃旧结果
+        // 真拿到真实资料（source 不是 fallback），原地替换这一行
+        if (d && d.ok && d.user && d.source !== 'fallback') {
+          var real = normalizeReal(tag, d.user, d.source);
+var row = findRowByTag(tag);
           if (row) updateRowDom(row, real);
-          else { clearResults(); $('resultsList').appendChild(makeRow(real, q)); }
+          else { clearResults(); $('resultsList').appendChild(makeRow(real, tag)); }
+          return;
         }
-        // 返回无效：保留兜底
+        // 后端只给了兜底：保留页面兜底，补一次重试
+        if (attempt === 0) {
+          setTimeout(function () {
+            if (seq !== searchSeq) return;
+            requestRealLookup(tag, seq, 1);
+          }, 2500);
+        }
       })
       .catch(function () {
-        // 超时 / 网络失败：保留兜底，不动页面
+        // 超时 / 网络失败：保留兜底，并在 2.5 秒后补一次请求
+        if (seq !== searchSeq) return;
+        if (attempt === 0) {
+          setTimeout(function () {
+            if (seq !== searchSeq) return;
+            requestRealLookup(tag, seq, 1);
+          }, 2500);
+        }
       });
   }
 
@@ -457,14 +528,14 @@ $('resultsList').appendChild(makeRow(makeDemoUser(q), q));
     $('confirmName').textContent = user.nickname || user.uid;
     setAvatarBox($('noteAvatar'), user);
     setAvatarBox($('confirmAvatar'), user);
-    updateContinue();
+updateContinue();
     closeKb();
     showSheet('noteSheet');
   }
 
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
-if (!clean) return;
+    if (!clean) return;
     fetch(API + '/user/save-search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -490,12 +561,12 @@ if (!clean) return;
       if (amountStr.indexOf('.') !== -1) {
         var dec = amountStr.split('.')[1] || '';
         if (dec.length >= 2) return;
-      }
+}
       if (amountStr === '0') amountStr = k;
       else {
         var digits = amountStr.replace('.', '');
         if (digits.length >= 10) return;
-amountStr += k;
+        amountStr += k;
       }
     }
     renderAmount();
@@ -523,10 +594,10 @@ amountStr += k;
 
   /* ---------------- 提示框 ---------------- */
   function showAlert() { $('alertMask').classList.add('open'); }
-  function showKickMask() { $('kickMask').classList.add('open'); }
+function showKickMask() { $('kickMask').classList.add('open'); }
 
   /* ---------------- 登录态校验 ---------------- */
-function checkKick() {
+  function checkKick() {
     fetch(API + '/user/check-kick', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -558,10 +629,10 @@ function checkKick() {
       .then(function (d) {
         if (!d || !d.ok) {
           if (d && /kicked|Session/i.test(d.msg || '')) { showKickMask(); }
-          else {
+else {
             localStorage.removeItem('uid');
             localStorage.removeItem('clientId');
-location.replace('/');
+            location.replace('/');
           }
           return;
         }
@@ -577,6 +648,22 @@ location.replace('/');
 
   /* ---------------- 事件绑定 ---------------- */
   function bind() {
+    // 阻止手机系统键盘：搜索框/备注框只用来显示，输入统一走自绘键盘
+    ['searchInput', 'noteInput'].forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      var kind = (id === 'searchInput') ? 'search' : 'note';
+      // 移动端：直接拦掉触摸，自己开自绘键盘，系统键盘完全不出现
+      el.addEventListener('touchstart', function (e) {
+        e.preventDefault();
+        openKb(kind);
+      }, { passive: false });
+      // PC 端：阻止聚焦，避免光标和输入法
+      el.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      // 兜底：万一被聚焦，立刻失焦
+      el.addEventListener('focus', function () { el.blur(); });
+});
+
     // 数字键盘
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
@@ -602,7 +689,8 @@ location.replace('/');
 
     // 关闭搜索
     $('closeSearch').addEventListener('click', function () { hideSheets(); });
-// 点搜索框 -> 弹键盘
+
+    // 点搜索框 -> 弹键盘
     $('searchInput').addEventListener('click', function () { openKb('search'); });
 
     // 清除
@@ -611,7 +699,7 @@ location.replace('/');
       searchStr = '';
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
-      loadHistoryList();
+loadHistoryList();
     });
 
     // 点备注框 -> 弹键盘
@@ -637,7 +725,7 @@ location.replace('/');
       if (!noteStr.trim()) return;
       closeKb();
       saveHistory(targetUser.uid);
-$('confirmNote').textContent = noteStr;
+      $('confirmNote').textContent = noteStr;
       renderBalance();
       showSheet('confirmSheet');
     });
@@ -647,7 +735,7 @@ $('confirmNote').textContent = noteStr;
       if (noteStr.indexOf('✨') !== -1) return;
       noteStr = noteStr + ' ✨';
       $('confirmNote').textContent = noteStr;
-    });
+});
 
     // 支付
     $('confirmPay').addEventListener('click', function () {
@@ -675,7 +763,7 @@ $('confirmNote').textContent = noteStr;
             amount: amt,
             remark: noteStr,
             targetUid: targetUser ? targetUser.uid : ''
-})
+          })
         })
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -685,7 +773,7 @@ $('confirmNote').textContent = noteStr;
               hideSheets();
               if (d && /Insufficient/i.test(d.msg || '')) {
                 if (d.balance != null) balance = Number(d.balance);
-                renderBalance();
+renderBalance();
                 showAlert();
               } else if (d && /kicked|Session/i.test(d.msg || '')) {
                 showKickMask();
@@ -710,7 +798,7 @@ $('confirmNote').textContent = noteStr;
     // 余额不足关闭
     $('alertOk').addEventListener('click', function () {
       $('alertMask').classList.remove('open');
-showSheet('confirmSheet');
+      showSheet('confirmSheet');
     });
 
     // 被踢下线
