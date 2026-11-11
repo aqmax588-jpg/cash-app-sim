@@ -1,6 +1,6 @@
 /* =========================================================
-Cash App Simulator 【强制拉历史版本】
-打开搜索弹窗，直接单独请求search-history，不再卡在renderResults时序
+Cash App Simulator 【适配MongoDB后端 最终版】
+后端已有完整search‑history存取接口，无需修改server.js
 ========================================================= */
 (function () {
   'use strict';
@@ -235,49 +235,47 @@ Cash App Simulator 【强制拉历史版本】
     $('resultsList').appendChild(d);
   }
 
-  // 【单独拉取历史 独立函数，不和renderResults混在一起】
+  //【独立加载搜索历史函数，打开弹窗直接调用】
   function loadHistoryList() {
-    console.log('==== 开始加载历史联系人 ====');
+    console.log('==== loadHistoryList 执行，请求search‑history ====');
     clearResults();
     fetch(API + '/user/search-history/' + encodeURIComponent(uid))
       .then(r => r.json())
       .then(data => {
-        console.log("拿到历史列表：", data.list);
+        console.log('search‑history返回：', data);
         if (!data || !data.ok || !Array.isArray(data.list) || data.list.length === 0) {
           renderEmptyState('No recent contacts. Type a $Cashtag to search.');
           return;
         }
-        var idArr = data.list.slice(0,8);
-        idArr.forEach(function(id){
+        var idArr = data.list.slice(0, 8);
+        idArr.forEach(function (id) {
           var tempUser = makeDemoUser(id);
           var domRow = makeRow(tempUser);
           $('resultsList').appendChild(domRow);
-          fetch(API+'/user/lookup/'+encodeURIComponent(id))
-            .then(r=>r.json())
-            .then(d=>{
-              if(d && d.ok && d.user){
+          fetch(API + '/user/lookup/' + encodeURIComponent(id))
+            .then(r => r.json())
+            .then(d => {
+              if (d && d.ok && d.user) {
                 setAvatarBox(domRow.querySelector('.avatar'), d.user);
-                domRow.querySelector('.result-name').textContent = d.user.nickname||d.user.uid;
-                domRow.querySelector('.result-tag').textContent = '$' + String(d.user.uid||'').replace(/^\$/g,'');
+                domRow.querySelector('.result-name').textContent = d.user.nickname || d.user.uid;
+                domRow.querySelector('.result-tag').textContent = '$' + String(d.user.uid || '').replace(/^\$/g, '');
               }
             })
-            .catch(e=>console.log('lookup失败：',e));
+            .catch(e => console.log('lookup历史项失败', e));
         });
       })
-      .catch(err=>{
+      .catch(err => {
         clearResults();
-        console.error('获取历史失败：',err);
+        console.error('获取搜索历史网络异常', err);
         renderEmptyState('No recent contacts. Type a $Cashtag to search.');
       });
   }
 
   function renderResults() {
-    console.log('==== renderResults执行，搜索查询 ====');
     var q = searchStr.trim().replace(/^\$/g, '');
     var seq = ++searchSeq;
     clearResults();
     if (!q) {
-      // 输入框清空的时候，直接调用加载历史
       loadHistoryList();
       return;
     }
@@ -312,6 +310,7 @@ Cash App Simulator 【强制拉历史版本】
         $('resultsList').appendChild(makeRow(makeDemoUser(q)));
       });
   }
+
   function pickUser(user) {
     targetUser = user;
     noteStr = '';
@@ -325,17 +324,18 @@ Cash App Simulator 【强制拉历史版本】
     showSheet('noteSheet');
     saveHistory(user.uid);
   }
+
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
     if (!clean) return;
     fetch(API + '/user/save-search', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content‑Type': 'application/json' },
       body: JSON.stringify({ uid: uid, searchId: clean })
     })
-    .then(res=>res.json())
-    .then(ret=>{console.log("保存搜索历史结果：",ret);})
-    .catch(err=>{console.error("保存搜索历史失败",err);});
+      .then(res => res.json())
+      .then(ret => { console.log('保存搜索历史结果：', ret); })
+      .catch(err => { console.error('保存搜索历史失败', err); });
   }
 
   function pressNum(k) {
@@ -372,14 +372,14 @@ Cash App Simulator 【强制拉历史版本】
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
   function checkKick() {
-    fetch(API + '/user/check-kick', {
+    fetch(API + '/user/check‑kick', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content‑Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
-      .then(r=>r.json())
-      .then(d=>{ if(d && d.kicked){ if(kickTimer)clearInterval(kickTimer); showKickMask();}})
-      .catch(()=>{});
+      .then(r => r.json())
+      .then(d => { if (d && d.kicked) { if (kickTimer) clearInterval(kickTimer); showKickMask(); } })
+      .catch(() => { });
   }
 
   function boot() {
@@ -390,10 +390,10 @@ Cash App Simulator 【强制拉历史版本】
     updateContinue();
     fetch(API + '/user/info', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content‑Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
-      .then(r=>r.json())
+      .then(r => r.json())
       .then(function (d) {
         if (!d || !d.ok) {
           if (d && /kicked|Session/.test(d.msg || '')) { showKickMask(); }
@@ -405,7 +405,7 @@ Cash App Simulator 【强制拉历史版本】
         renderBalance();
         renderMe();
       })
-      .catch(function () {});
+      .catch(function () { });
     kickTimer = setInterval(checkKick, 9000);
   }
 
@@ -413,10 +413,10 @@ Cash App Simulator 【强制拉历史版本】
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
       if (!btn) return;
-      pressNum(btn.getAttribute('data-key'));
+      pressNum(btn.getAttribute('data‑key'));
     });
 
-    // Pay按钮：打开弹窗，直接调用加载历史！！
+    //Pay按钮：先打开弹窗，直接调用加载历史
     $('payEntry').addEventListener('click', function () {
       var v = parseFloat(amountStr);
       if (!v || v <= 0) {
@@ -426,9 +426,8 @@ Cash App Simulator 【强制拉历史版本】
       }
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
+      $('searchBox').classList.remove('has‑value');
       showSheet('searchSheet');
-      // 弹窗打开，直接调用加载历史函数
       loadHistoryList();
     });
 
@@ -438,13 +437,13 @@ Cash App Simulator 【强制拉历史版本】
       e.stopPropagation();
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
+      $('searchBox').classList.remove('has‑value');
       loadHistoryList();
     });
     $('noteInput').addEventListener('click', function () { openKb('note'); });
     $('sheetLayer').addEventListener('pointerdown', function (e) {
       if (!kbOpen) return;
-      if (e.target.closest('.soft-kb')) return;
+      if (e.target.closest('.softKb')) return;
       if (e.target.id === 'searchInput' || e.target.id === 'noteInput') return;
       closeKb();
     });
@@ -477,7 +476,7 @@ Cash App Simulator 【强制拉历史版本】
       setTimeout(function () {
         fetch(API + '/user/pay', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content‑Type': 'application/json' },
           body: JSON.stringify({
             uid: uid,
             clientId: clientId,
@@ -486,16 +485,16 @@ Cash App Simulator 【强制拉历史版本】
             targetUid: targetUser ? targetUser.uid : ''
           })
         })
-          .then(r=>r.json())
+          .then(r => r.json())
           .then(function (d) {
             payBusy = false;
             if (!d || !d.ok) {
               hideSheets();
-              if (d && /Insufficient/i.test(d.msg || '')) {
+              if (d && /Insufficient/.test(d.msg || '')) {
                 if (d.balance != null) balance = Number(d.balance);
                 renderBalance();
                 showAlert();
-              } else if (d && /kicked|Session/i.test(d.msg || '')) {
+              } else if (d && /kicked|Session/.test(d.msg || '')) {
                 showKickMask();
               }
               return;
@@ -539,7 +538,7 @@ Cash App Simulator 【强制拉历史版本】
       searchStr = '';
       $('noteInput').value = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
+      $('searchBox').classList.remove('has‑value');
       updateContinue();
       renderAmount();
       renderBalance();
