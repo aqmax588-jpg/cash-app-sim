@@ -242,7 +242,7 @@ Cash App Simulator 【修复：search-history不发起请求】
     try {
       const url = API + '/user/search-history/' + encodeURIComponent(uid);
       console.log('请求地址：', url);
-      const resHist = await fetch(url, {signal: AbortSignal.timeout(5000)});
+     const resHist = await fetch(url);
       const dataHist = await resHist.json();
       console.log('history后端返回：', dataHist);
       if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) {
@@ -252,7 +252,7 @@ Cash App Simulator 【修复：search-history不发起请求】
       const idArr = dataHist.list.slice(0,8);
       const promiseList = idArr.map(async (id)=>{
         try{
-          const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id),{signal: AbortSignal.timeout(5000)});
+         const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id))
           const d = await r.json();
           if(d && d.ok && d.user) return d.user;
           return makeDemoUser(id);
