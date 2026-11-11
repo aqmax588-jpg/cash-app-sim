@@ -1,204 +1,142 @@
-const express = require('express')
-const cors = require('cors')
-const fs = require('fs')
-const path = require('path')
-const { v4: uuidv4 } = require('uuid')
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const app = express();
+const PORT = process.env.PORT || 10000;
 
-const app = express()
-const PORT = process.env.PORT || 3000
-app.use(cors())
-app.use(express.json())
-app.use(express.static('public'))
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-const DB_FILE = path.join(__dirname, 'db.json')
-const loadDB = () => {
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({
-      admin: { username: 'admin', password: 'admin123' },
-      accounts: [],
-      sessions: [],
-      recharge_logs: [],
-      pay_logs: []
-    }, null, 2))
-  }
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'))
-}
-const saveDB = (db) => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2))
+// 管理员账号
+const ADMIN = {
+  username: "admin",
+  password: "admin123"
+};
 
-// 随机初始余额 1500000 ~ 2000000
-const randomBalance = () => {
-  const min = 1500000
-  const max = 2000000
-  return Number((Math.random() * (max - min) + min).toFixed(2))
-}
+// 内存存储
+let users = [];
+let sessions = {}; // 在线会话，用于互踢
+let transactionRecords = [];
 
-// 踢掉该账号全部旧会话
-const kickOldSession = (accountId, newDeviceId) => {
-  const db = loadDB()
-  db.sessions = db.sessions.filter(s => {
-    if (s.accountId === accountId) {
-      return s.deviceId === newDeviceId
-    }
-    return true
-  })
-  saveDB(db)
-}
-
-// 管理员登录
+// 管理员登录接口
 app.post('/api/admin/login', (req, res) => {
-  const { username, password } = req.body
-  const db = loadDB()
-  if (db.admin.username === username && db.admin.password === password) {
-    const token = uuidv4()
-    res.json({ ok: true, token })
-  } else {
-    res.json({ ok: false, msg: '账号密码错误' })
+  const { username, password } = req.body;
+  if (username === ADMIN.username && password === ADMIN.password) {
+    return res.json({ ok: true, msg: "admin login success" });
   }
-})
+  return res.json({ ok: false, msg: "wrong admin account or password" });
+});
 
-// 创建账号
-app.post('/api/admin/create-account', (req, res) => {
-  const { username, password, bindTimes } = req.body
-  const db = loadDB()
-  const exists = db.accounts.find(a => a.username === username)
-  if (exists) return res.json({ ok: false, msg: '账号已存在' })
-  const newAcc = {
-    id: uuidv4(),
-    username,
-    password,
-    balance: randomBalance(),
-    bindTimes: Number(bindTimes),
-    avatarId: '',
-    avatarUrl: ''
-  }
-  db.accounts.push(newAcc)
-  saveDB(db)
-  res.json({ ok: true, account: newAcc })
-})
-
-// 获取账号列表
-app.get('/api/admin/accounts', (req, res) => {
-  const db = loadDB()
-  res.json({ ok: true, list: db.accounts })
-})
-
-// 管理员充值，写入充值流水（真实记录）
-app.post('/api/admin/recharge', (req, res) => {
-  const { accountId, amount } = req.body
-  const db = loadDB()
-  const acc = db.accounts.find(a => a.id === accountId)
-  if (!acc) return res.json({ ok: false, msg: '账号不存在' })
-  const addAmt = Number(amount)
-  acc.balance = Number((acc.balance + addAmt).toFixed(2))
-  db.recharge_logs.push({
-    logId: uuidv4(),
-    accountId,
-    username: acc.username,
-    amount: addAmt,
-    time: new Date().toLocaleString(),
-    timestamp: Date.now()
-  })
-  saveDB(db)
-  res.json({ ok: true, balance: acc.balance })
-})
-
-// 获取全部流水（管理端）
-app.get('/api/admin/logs', (req, res) => {
-  const db = loadDB()
-  const allLogs = [
-    ...db.recharge_logs.map(i => ({ ...i, type: 'admin_recharge' })),
-    ...db.pay_logs.map(i => ({ ...i, type: 'user_pay' }))
-  ].sort((a, b) => b.timestamp - a.timestamp)
-  res.json({ ok: true, list: allLogs })
-})
-
-// 强制踢下线
-app.post('/api/admin/kick', (req, res) => {
-  const { accountId } = req.body
-  const db = loadDB()
-  db.sessions = db.sessions.filter(s => s.accountId !== accountId)
-  saveDB(db)
-  res.json({ ok: true })
-})
-
-// 设置头像ID，unavatar.io 拉取 Cash App 真实头像
-app.post('/api/admin/set-avatar', (req, res) => {
-  const { accountId, avatarId } = req.body
-  const db = loadDB()
-  const acc = db.accounts.find(a => a.id === accountId)
-  if (!acc) return res.json({ ok: false, msg: '账号不存在' })
-  acc.avatarId = avatarId
-  // unavatar cashapp 接口，cashtag 不带 $
-  acc.avatarUrl = `https://unavatar.io/cashapp/${encodeURIComponent(avatarId)}`
-  saveDB(db)
-  res.json({ ok: true, avatarUrl: acc.avatarUrl })
-})
-
-// 用户登录
+// 用户登录接口 + 互踢逻辑
 app.post('/api/user/login', (req, res) => {
-  const { username, password, deviceId } = req.body
-  const db = loadDB()
-  const acc = db.accounts.find(a => a.username === username && a.password === password)
-  if (!acc) return res.json({ ok: false, msg: '账号密码错误' })
-
-  const hasThisDevice = db.sessions.some(s => s.accountId === acc.id && s.deviceId === deviceId)
-  if (!hasThisDevice) {
-    if (acc.bindTimes <= 0) {
-      return res.json({ ok: false, msg: '换绑次数已用完，无法在新设备登录' })
-    }
-    acc.bindTimes -= 1
+  const { uid, password, clientId } = req.body;
+  const user = users.find(u => u.uid === uid && u.password === password);
+  if (!user) {
+    return res.json({ ok: false, msg: "User not found or wrong password" });
   }
-  kickOldSession(acc.id, deviceId)
-  const token = uuidv4()
-  db.sessions.push({
-    token,
-    accountId: acc.id,
-    deviceId,
-    createAt: Date.now()
-  })
-  saveDB(db)
-  res.json({
+  // 踢掉之前的会话
+  if (sessions[uid]) {
+    sessions[uid].kicked = true;
+  }
+  sessions[uid] = { clientId, kicked: false };
+  return res.json({
     ok: true,
-    token,
-    account: acc
-  })
-})
+    user: { uid: user.uid, nickname: user.nickname, balance: user.balance, avatar: user.avatar },
+    msg: "Login success"
+  });
+});
 
-// 获取账号信息 + 该账号自己的支付流水
-app.post('/api/user/info', (req, res) => {
-  const { token, deviceId } = req.body
-  const db = loadDB()
-  const session = db.sessions.find(s => s.token === token && s.deviceId === deviceId)
-  if (!session) return res.json({ ok: false, msg: '会话失效，请重新登录' })
-  const acc = db.accounts.find(a => a.id === session.accountId)
-  const userPayLogs = db.pay_logs.filter(l => l.accountId === acc.id).sort((a, b) => b.timestamp - a.timestamp)
-  res.json({ ok: true, account: acc, payLogs: userPayLogs })
-})
+// 检查是否被踢
+app.post('/api/user/check-kick', (req, res) => {
+  const { uid, clientId } = req.body;
+  const s = sessions[uid];
+  if (!s || s.kicked || s.clientId !== clientId) {
+    return res.json({ kicked: true });
+  }
+  return res.json({ kicked: false });
+});
 
-// 用户支付，写入支付流水
+// 管理员新增用户，余额随机 150w ~ 200w
+app.post('/api/admin/add-user', (req, res) => {
+  const { uid, password, nickname, avatar } = req.body;
+  if (users.find(u => u.uid === uid)) {
+    return res.json({ ok: false, msg: "This ID already exists" });
+  }
+  const balance = Math.floor(1500000 + Math.random() * 500000);
+  const newUser = { uid, password, nickname, avatar, balance };
+  users.push(newUser);
+  return res.json({ ok: true, user: newUser });
+});
+
+// 获取全部用户列表
+app.get('/api/admin/users', (req, res) => {
+  res.json(users);
+});
+
+// 管理员修改余额
+app.post('/api/admin/set-balance', (req, res) => {
+  const { uid, newBalance } = req.body;
+  const u = users.find(x => x.uid === uid);
+  if (!u) return res.json({ ok: false });
+  u.balance = Number(newBalance);
+  return res.json({ ok: true, user: u });
+});
+
+// 充值交易接口，余额校验，不能负数
 app.post('/api/user/pay', (req, res) => {
-  const { token, deviceId, amount, receiverName, note } = req.body
-  const db = loadDB()
-  const session = db.sessions.find(s => s.token === token && s.deviceId === deviceId)
-  if (!session) return res.json({ ok: false, msg: '会话失效' })
-  const acc = db.accounts.find(a => a.id === session.accountId)
-  const payAmt = Number(amount)
-  if (payAmt > acc.balance) return res.json({ ok: false, msg: '余额不足' })
-  acc.balance = Number((acc.balance - payAmt).toFixed(2))
-  db.pay_logs.push({
-    logId: uuidv4(),
-    accountId: acc.id,
-    username: acc.username,
-    amount: payAmt,
-    receiverName,
-    note,
+  const { uid, amount, remark, targetId, targetNick, targetAvatar } = req.body;
+  const user = users.find(u => u.uid === uid);
+  if (!user) return res.json({ ok: false, msg: "User not found" });
+  if (user.balance < Number(amount)) {
+    return res.json({ ok: false, msg: "Insufficient balance, payment failed" });
+  }
+  user.balance -= Number(amount);
+  const record = {
     time: new Date().toLocaleString(),
-    timestamp: Date.now()
-  })
-  saveDB(db)
-  res.json({ ok: true, balance: acc.balance })
-})
+    uid,
+    amount: Number(amount),
+    remark,
+    targetId,
+    targetNick,
+    targetAvatar
+  };
+  transactionRecords.push(record);
+  return res.json({ ok: true, user, record });
+});
+
+// 获取该用户的交易流水
+app.get('/api/user/records/:uid', (req, res) => {
+  const uid = req.params.uid;
+  const list = transactionRecords.filter(r => r.uid === uid);
+  res.json(list);
+});
+
+// 历史搜索记录（用户搜索过的ID）
+let searchHistory = {};
+app.post('/api/user/save-search', (req, res) => {
+  const { uid, searchId } = req.body;
+  if (!searchHistory[uid]) searchHistory[uid] = [];
+  if (!searchHistory[uid].includes(searchId)) {
+    searchHistory[uid].push(searchId);
+  }
+  res.json({ ok: true });
+});
+app.get('/api/user/search-history/:uid', (req, res) => {
+  const uid = req.params.uid;
+  res.json(searchHistory[uid] || []);
+});
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/index.html'));
+});
+app.get('/cash', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/cash.html'));
+});
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/admin.html'));
+});
 
 app.listen(PORT, () => {
-  console.log(`服务启动，端口：${PORT}`)
-})
+  console.log(`Server running on port ${PORT}`);
+});
