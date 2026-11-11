@@ -1,6 +1,6 @@
 /* =========================================================
-Cash App Simulator｜真实优先策略
-规则：真实API第一；兜底仅临时显示，不写入缓存；历史后台异步刷新真实资料
+Cash App Simulator｜修复搜索卡死、输入不查真实接口
+核心规则：输入内容=只搜真实接口；空输入=加载历史；真实优先
 ========================================================= */
 (function () {
   'use strict';
@@ -19,17 +19,15 @@ Cash App Simulator｜真实优先策略
     localStorage.setItem('cash_history_'+uid, JSON.stringify(arr.slice(0,8)));
   }
 
-  // 【只保存真实接口返回的用户资料，12小时有效期】兜底不进缓存
+  // 只保存真实接口返回的用户资料，12小时有效期
   function getUserProfileCache(cashtag){
     const key = 'cash_profile_' + cashtag;
     const raw = localStorage.getItem(key);
     if(!raw) return null;
     const obj = JSON.parse(raw);
-    // 过期直接作废
     if(Date.now() - obj.time > 12 * 3600 * 1000) return null;
     return obj.data;
   }
-  // 仅真实数据调用此函数存入缓存
   function setRealUserProfileCache(cashtag, data){
     const key = 'cash_profile_' + cashtag;
     localStorage.setItem(key, JSON.stringify({
@@ -38,7 +36,7 @@ Cash App Simulator｜真实优先策略
     }));
   }
 
-  // 兜底对象：仅页面临时渲染，绝不写入localStorage
+  // 兜底对象：仅临时渲染，不写入缓存
   function makeDemoUser(raw) {
     var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
     if (!name) name = 'user';
@@ -255,84 +253,63 @@ Cash App Simulator｜真实优先策略
     $('resultsList').innerHTML = '';
   }
 
-  // 打开历史：先用本地真实缓存快速渲染界面；后台再拉真实接口刷新全部历史ID
+  // 【仅输入框为空的时候加载历史】
   function loadHistoryList() {
-    console.log('====打开搜索页，加载历史，真实优先====');
+    console.log('加载历史列表');
     clearResults();
     const localIdList = getHistoryCache();
-
-    // 第一步：立刻用本地已缓存的真实数据渲染页面；没有缓存就先用兜底临时显示
     if(localIdList && Array.isArray(localIdList) && localIdList.length>0){
       localIdList.forEach(id=>{
         const cachedUser = getUserProfileCache(id);
         const showUser = cachedUser ? cachedUser : makeDemoUser(id);
         $('resultsList').appendChild(makeRow(showUser));
       });
-    }else{
-      renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-    }
-
-    // 第二步【重点】后台异步：批量刷新历史列表每一个ID的真实资料，拿到真实就覆盖页面
-    (async function backgroundRefreshHistoryRealData(){
-      try {
-        // 先拿后端最新的ID顺序列表
-        const respHis = await fetch(API + '/user/search-history/' + encodeURIComponent(uid), {signal:AbortSignal.timeout(3000)});
-        const hisJson = await respHis.json();
-        if(!hisJson || !hisJson.ok || !Array.isArray(hisJson.list)) return;
-        const freshIdList = hisJson.list.slice(0,8);
-        setHistoryCache(freshIdList);
-
-        // 逐个请求lookup拿真实资料
-        for(const cashtag of freshIdList){
+      // 后台异步刷新历史真实头像
+      (async function backgroundRefreshHistoryRealData(){
+        for(const cashtag of localIdList){
           try{
             const res = await fetch(API+'/user/lookup/'+encodeURIComponent(cashtag), {signal:AbortSignal.timeout(1800)});
             const data = await res.json();
             if(data && data.ok && data.user){
-              // 拿到真实，存入缓存
               setRealUserProfileCache(cashtag, data.user);
             }
-          }catch(err){
-            // 单个id请求失败，跳过，继续下一个，不阻塞整体
-            continue;
-          }
+          }catch(err){continue;}
         }
-        // 全部刷新完，重新渲染完整真实列表
-        clearResults();
-        freshIdList.forEach(id=>{
-          const cu = getUserProfileCache(id);
-          const su = cu ? cu : makeDemoUser(id);
-          $('resultsList').appendChild(makeRow(su));
-        });
-      }catch(e){
-        console.log("后台刷新历史真实数据失败，继续使用当前显示", e);
-      }
-    })();
+      })();
+    }else{
+      renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+    }
   }
 
-  // 搜索输入框逻辑：优先请求真实接口，失败才兜底
+  // ========== 重点修复这个搜索函数 ==========
   function renderResults() {
     var q = searchStr.trim().replace(/^\$/g, '');
     var seq = ++searchSeq;
     clearResults();
+
+    // 空输入：加载历史
     if (!q) {
       loadHistoryList();
       return;
     }
+
+    // 有搜索内容：只做真实lookup，不再加载历史！
     $('resultsHead').textContent = 'RESULTS';
-    // 先看本地有没有真实缓存
+    // 先看本地缓存有没有真实数据
     const cached = getUserProfileCache(q);
     if(cached){
       $('resultsList').appendChild(makeRow(cached));
     }else{
-      // 无缓存，先放兜底占位，同时请求真实接口
+      // 无缓存，先放兜底占位
       $('resultsList').appendChild(makeRow(makeDemoUser(q)));
     }
 
-    // 请求真实接口，拿到就覆盖页面条目
+    // 发起真实接口请求
     (async function fetchRealSearch(){
       try{
-        const res = await fetch(API + '/user/lookup/' + encodeURIComponent(q), {signal:AbortSignal.timeout(1800)});
+        const res = await fetch(API + '/user/lookup/' + encodeURIComponent(q), {signal:AbortSignal.timeout(2200)});
         const data = await res.json();
+        // 防止旧请求覆盖新输入
         if(seq !== searchSeq) return;
         clearResults();
         if(data && data.ok && data.user){
@@ -373,7 +350,6 @@ Cash App Simulator｜真实优先策略
     })
     .then(res=>res.json())
     .then(ret=>{
-      console.log("save‑search resp",ret);
       let cache = getHistoryCache() || [];
       cache = cache.filter(x=>x!==clean);
       cache.unshift(clean);
