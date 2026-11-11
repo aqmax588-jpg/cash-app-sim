@@ -1,6 +1,7 @@
 /* =========================================================
-Cash App Simulator 【适配MongoDB后端 修复数字键盘失灵版】
-后端已有完整search‑history存取接口，server.js不用修改
+Cash App Simulator 【MongoDB最终稳定版】
+修复：历史列表先拿全部数据再渲染，避免DOM更新丢失；修复数字键盘；保留全部原有业务
+server.js无需修改
 ========================================================= */
 (function () {
   'use strict';
@@ -106,6 +107,40 @@ Cash App Simulator 【适配MongoDB后端 修复数字键盘失灵版】
       el.appendChild(img);
     }
   }
+  function makeRow(user) {
+    var row = document.createElement('div');
+    row.className = 'result-row';
+    row.appendChild(buildAvatar(user));
+    var info = document.createElement('div');
+    info.className = 'result-info';
+    var n = document.createElement('div');
+    n.className = 'result-name';
+    n.textContent = user.nickname || user.uid;
+    var t = document.createElement('div');
+    t.className = 'result-tag';
+    t.textContent = '$' + String(user.uid || '').replace(/^\$/g, '');
+    info.appendChild(n);
+    info.appendChild(t);
+    row.appendChild(info);
+    row.addEventListener('click', function () { pickUser(user); });
+    return row;
+  }
+  function makeDemoUser(raw) {
+    var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
+    if (!name) name = 'user';
+    return {
+      uid: name,
+      nickname: name.charAt(0).toUpperCase() + name.slice(1),
+      avatar: '',
+      avatarFallback: ''
+    };
+  }
+  function renderEmptyState(text) {
+    var d = document.createElement('div');
+    d.className = 'no-hint';
+    d.textContent = text;
+    $('resultsList').appendChild(d);
+  }
 
   function showSheet(name) {
     $('sheetLayer').classList.add('open');
@@ -201,74 +236,41 @@ Cash App Simulator 【适配MongoDB后端 修复数字键盘失灵版】
   function clearResults() {
     $('resultsList').innerHTML = '';
   }
-  function makeRow(user) {
-    var row = document.createElement('div');
-    row.className = 'result-row';
-    row.appendChild(buildAvatar(user));
-    var info = document.createElement('div');
-    info.className = 'result-info';
-    var n = document.createElement('div');
-    n.className = 'result-name';
-    n.textContent = user.nickname || user.uid;
-    var t = document.createElement('div');
-    t.className = 'result-tag';
-    t.textContent = '$' + String(user.uid || '').replace(/^\$/g, '');
-    info.appendChild(n);
-    info.appendChild(t);
-    row.appendChild(info);
-    row.addEventListener('click', function () { pickUser(user); });
-    return row;
-  }
-  function makeDemoUser(raw) {
-    var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
-    if (!name) name = 'user';
-    return {
-      uid: name,
-      nickname: name.charAt(0).toUpperCase() + name.slice(1),
-      avatar: ''
-    };
-  }
-  function renderEmptyState(text) {
-    var d = document.createElement('div');
-    d.className = 'no-hint';
-    d.textContent = text;
-    $('resultsList').appendChild(d);
-  }
 
-  //【独立加载搜索历史函数，打开弹窗直接调用】
-  function loadHistoryList() {
-    console.log('==== loadHistoryList 执行，请求search‑history ====');
+  // ===加载历史：全部拿到完整用户对象，再一次性渲染DOM===
+  async function loadHistoryList() {
+    console.log('loadHistoryList start');
     clearResults();
-    fetch(API + '/user/search-history/' + encodeURIComponent(uid))
-      .then(r => r.json())
-      .then(data => {
-        console.log('search‑history返回：', data);
-        if (!data || !data.ok || !Array.isArray(data.list) || data.list.length === 0) {
-          renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-          return;
-        }
-        var idArr = data.list.slice(0, 8);
-        idArr.forEach(function (id) {
-          var tempUser = makeDemoUser(id);
-          var domRow = makeRow(tempUser);
-          $('resultsList').appendChild(domRow);
-          fetch(API + '/user/lookup/' + encodeURIComponent(id))
-            .then(r => r.json())
-            .then(d => {
-              if (d && d.ok && d.user) {
-                setAvatarBox(domRow.querySelector('.avatar'), d.user);
-                domRow.querySelector('.result-name').textContent = d.user.nickname || d.user.uid;
-                domRow.querySelector('.result-tag').textContent = '$' + String(d.user.uid || '').replace(/^\$/g, '');
-              }
-            })
-            .catch(e => console.log('lookup历史项失败', e));
-        });
-      })
-      .catch(err => {
-        clearResults();
-        console.error('获取搜索历史网络异常', err);
+    try {
+      const resHist = await fetch(API + '/user/search-history/' + encodeURIComponent(uid));
+      const dataHist = await resHist.json();
+      console.log('history backend return', dataHist);
+      if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) {
         renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+        return;
+      }
+      const idArr = dataHist.list.slice(0,8);
+      // 并行全部lookup拿到完整user对象
+      const promiseList = idArr.map(async (id)=>{
+        try{
+          const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id));
+          const d = await r.json();
+          if(d && d.ok && d.user) return d.user;
+          return makeDemoUser(id);
+        }catch(e){
+          return makeDemoUser(id);
+        }
       });
+      const userList = await Promise.all(promiseList);
+      //全部拿完，一次性渲染DOM
+      userList.forEach(u=>{
+        $('resultsList').appendChild(makeRow(u));
+      });
+    }catch(err){
+      clearResults();
+      console.error('loadHistoryList error',err);
+      renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+    }
   }
 
   function renderResults() {
@@ -292,13 +294,7 @@ Cash App Simulator 【适配MongoDB后端 修复数字键盘失灵版】
         if (seq !== searchSeq) return;
         clearResults();
         if (data && data.ok && data.user) {
-          var real = {
-            uid: data.user.uid,
-            nickname: data.user.nickname,
-            avatar: data.user.avatar || '',
-            avatarFallback: data.user.avatarFallback || ''
-          };
-          $('resultsList').appendChild(makeRow(real));
+          $('resultsList').appendChild(makeRow(data.user));
           return;
         }
         $('resultsList').appendChild(makeRow(makeDemoUser(q)));
@@ -333,9 +329,9 @@ Cash App Simulator 【适配MongoDB后端 修复数字键盘失灵版】
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, searchId: clean })
     })
-      .then(res => res.json())
-      .then(ret => { console.log('保存搜索历史结果：', ret); })
-      .catch(err => { console.error('保存搜索历史失败', err); });
+    .then(res=>res.json())
+    .then(ret=>{console.log("save‑search resp",ret);})
+    .catch(err=>{console.error("save‑search err",err);});
   }
 
   function pressNum(k) {
@@ -378,8 +374,8 @@ Cash App Simulator 【适配MongoDB后端 修复数字键盘失灵版】
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
-      .then(d => { if (d && d.kicked) { if (kickTimer) clearInterval(kickTimer); showKickMask(); } })
-      .catch(() => { });
+      .then(d => { if(d && d.kicked){ if(kickTimer)clearInterval(kickTimer); showKickMask();} })
+      .catch(() => {});
   }
 
   function boot() {
@@ -405,12 +401,12 @@ Cash App Simulator 【适配MongoDB后端 修复数字键盘失灵版】
         renderBalance();
         renderMe();
       })
-      .catch(function () { });
+      .catch(function () {});
     kickTimer = setInterval(checkKick, 9000);
   }
 
   function bind() {
-    // 修复数字键盘点击事件！这里是重点
+    // 数字金额键盘
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
       if (!btn) return;
@@ -418,7 +414,7 @@ Cash App Simulator 【适配MongoDB后端 修复数字键盘失灵版】
       pressNum(key);
     });
 
-    //Pay按钮：先打开弹窗，直接调用加载历史
+    // Pay按钮
     $('payEntry').addEventListener('click', function () {
       var v = parseFloat(amountStr);
       if (!v || v <= 0) {
