@@ -1,0 +1,732 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+body {
+  color: #fff;
+}
+
+/* ============ 整体容器 ============ */
+#app {
+  width: 100%;
+  height: 100vh;
+  background: #000;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 手机端限制宽度，PC 上也像手机 */
+.app-wrap {
+  width: 100%;
+  max-width: 430px;
+  height: 100vh;
+  margin: 0 auto;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ============ 顶部栏 ============ */
+.home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 6px;
+  flex: 0 0 auto;
+}
+
+.menu-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #fff;
+  cursor: pointer;
+  border: none;
+}
+
+.avatar-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  font-size: 16px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.avatar-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ============ 金额显示 ============ */
+.amount-display {
+  font-size: 46px;
+  font-weight: 600;
+  text-align: center;
+  padding: 12px 20px 6px;
+  letter-spacing: 0.5px;
+  color: #fff;
+  flex: 0 0 auto;
+}
+
+/* ============ 历史记录卡片 ============ */
+.history-card {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 8px 16px 6px;
+  background: #111;
+  border-radius: 16px;
+  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.history-title {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #8a8a8e;
+  font-weight: 600;
+  border-bottom: 1px solid #1f1f1f;
+  position: sticky;
+  top: 0;
+  background: #111;
+}
+
+.history-empty {
+  text-align: center;
+  color: #555;
+  font-size: 14px;
+  padding: 28px 0;
+}
+
+.history-item {
+  padding: 12px 14px;
+  border-bottom: 1px solid #171717;
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.history-person {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.history-money {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.history-sub {
+  font-size: 12px;
+  color: #777;
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+/* ============ 数字键盘 ============ */
+.keypad {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 8px 16px 20px;
+}
+
+.key-btn {
+  padding: 16px 8px;
+  font-size: 24px;
+  font-weight: 500;
+  border-radius: 14px;
+  border: none;
+  background: #1c1c1e;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.key-btn:active {
+  background: #2c2c2e;
+}
+
+.key-pay {
+  grid-column: 1 / -1;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  font-size: 22px;
+  margin-top: 4px;
+}
+
+.key-pay:active {
+  background: #00b840;
+}
+
+/* ============ 收款人搜索页 ============ */
+.page-receiver {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page-title {
+  padding: 16px 20px 6px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.search-box {
+  margin: 8px 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: none;
+  background: #1c1c1e;
+  color: #fff;
+  font-size: 17px;
+  outline: none;
+  width: calc(100% - 32px);
+}
+
+.search-box::placeholder {
+  color: #666;
+}
+
+.receiver-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 16px;
+}
+
+.receiver-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: #111;
+  border-radius: 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.receiver-item:active {
+  background: #1c1c1e;
+}
+
+.receiver-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.receiver-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.receiver-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.receiver-uid {
+  font-size: 12px;
+  color: #777;
+  margin-top: 2px;
+}
+
+.hint-text {
+  padding: 10px 20px;
+  color: #777;
+  font-size: 13px;
+}
+
+/* ============ 备注页 ============ */
+.modal-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px 16px;
+  overflow-y: auto;
+}
+
+.modal-back {
+  color: #00d54b;
+  font-size: 15px;
+  padding: 6px 0 14px;
+  cursor: pointer;
+  display: inline-block;
+}
+
+.modal-title {
+  font-size: 17px;
+  color: #8a8a8e;
+  margin-bottom: 12px;
+}
+
+.receiver-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+
+.receiver-row .receiver-avatar {
+  width: 48px;
+  height: 48px;
+  margin-right: 0;
+}
+
+.receiver-row .receiver-name {
+  font-size: 20px;
+}
+
+.note-display {
+  padding: 14px 16px;
+  background: #1c1c1e;
+  border-radius: 12px;
+  margin: 10px 0 14px;
+  color: #fff;
+  font-size: 17px;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  word-break: break-word;
+}
+
+.note-display.empty {
+  color: #666;
+}
+
+.text-keypad {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+  margin: 6px 0 14px;
+}
+
+.text-key {
+  padding: 10px 2px;
+  border: none;
+  border-radius: 8px;
+  background: #1c1c1e;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.text-key:active {
+  background: #2c2c2e;
+}
+
+.text-key.wide {
+  grid-column: span 2;
+  font-size: 13px;
+}
+
+.continue-btn {
+  width: 100%;
+  padding: 15px;
+  border-radius: 14px;
+  border: none;
+  font-weight: 700;
+  font-size: 17px;
+  background: #262628;
+  color: #5a5a5e;
+  cursor: not-allowed;
+  flex: 0 0 auto;
+}
+
+.continue-btn.active {
+  background: #00d54b;
+  color: #000;
+  cursor: pointer;
+}
+
+/* ============ 确认页 ============ */
+.confirm-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+}
+
+.confirm-note {
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  margin: 14px 0 6px;
+  word-break: break-word;
+}
+
+.style-row {
+  color: #00d54b;
+  font-size: 14px;
+  margin-bottom: 18px;
+}
+
+.balance-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  background: #111;
+  border-radius: 12px;
+  color: #ddd;
+  font-size: 15px;
+  margin-bottom: 14px;
+}
+
+.balance-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.tip-text {
+  color: #777;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+.pay-btn {
+  width: 100%;
+  padding: 16px;
+  border-radius: 14px;
+  border: none;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.pay-btn:active {
+  background: #00b840;
+}
+
+/* ============ 加载页 ============ */
+.loading-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.loader {
+  width: 60px;
+  height: 60px;
+  border: 4px solid #222;
+  border-top-color: #00d54b;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.loading-text {
+  margin-top: 18px;
+  color: #666;
+  font-size: 14px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============ 成功页 ============ */
+.page-success {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 24px;
+  text-align: center;
+}
+
+.success-check {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: #00d54b;
+  color: #000;
+  font-size: 40px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 22px;
+}
+
+.success-text {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+.success-sub {
+  font-size: 13px;
+  color: #777;
+  margin-bottom: 30px;
+}
+
+.success-buttons {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.success-btn {
+  flex: 1;
+  padding: 15px;
+  background: #1c1c1e;
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.success-btn:active {
+  background: #2c2c2e;
+}
+
+/* ============ 顶部通知条（独立计时） ============ */
+.top-notification {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translate(-50%, 0);
+  width: calc(100% - 24px);
+  max-width: 406px;
+  background: #1c1c1e;
+  border-radius: 16px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 999;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  transition: transform 0.28s ease, opacity 0.28s ease;
+}
+
+.top-notification.hide {
+  transform: translate(-50%, -140%);
+  opacity: 0;
+}
+
+.notify-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.notify-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex: 0 0 auto;
+}
+
+.notify-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.notify-desc {
+  font-size: 13px;
+  color: #a3a3a8;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notify-right {
+  font-size: 13px;
+  color: #8a8a8e;
+  flex: 0 0 auto;
+}
+
+/* ============ 余额不足弹窗 ============ */
+.alert-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.alert-box {
+  width: 100%;
+  max-width: 320px;
+  background: #1c1c1e;
+  border-radius: 18px;
+  padding: 22px;
+  text-align: center;
+}
+
+.alert-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+.alert-desc {
+  font-size: 14px;
+  color: #a3a3a8;
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+.alert-btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* ============ 回执弹层 ============ */
+.receipt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  padding: 24px;
+}
+
+.receipt-box {
+  width: 100%;
+  max-width: 330px;
+  background: #1c1c1e;
+  border-radius: 18px;
+  padding: 22px;
+}
+
+.receipt-title {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.receipt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid #262628;
+  font-size: 14px;
+}
+
+.receipt-row:last-of-type {
+  border-bottom: none;
+}
+
+.receipt-label {
+  color: #8a8a8e;
+  flex: 0 0 auto;
+}
+
+.receipt-value {
+  color: #fff;
+  text-align: right;
+  word-break: break-all;
+}
+
+.receipt-close {
+  margin-top: 18px;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* ============ 滚动条隐藏 ============ */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cash App 管理后台</title>
+<style>
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+}
+body {
+  background: #0d0d0d;
+  color: #fff;
+  padding: 18px;
+  min-height: 100vh;
+}
+.wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+h1 {
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+.desc {
+  color: #8a8a8e;
+  font-size: 13px;
+  margin-bottom: 18px;
+}
+.panel {
+  background: #171717;
+  border: 1px solid #242424;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.panel h2 {
+  font-size: 15px;
+  margin-bottom: 12px;
+  color: #e6e6e6;
+}
+.field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.field input {
+  padding: 11px 13px;
+  border-radius: 9px;
+  border: 1px solid #2a2a2a;
+  background: #0f0f0f;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  min-width: 150px;
+  flex: 1 1 150px;
+}
+.field input::placeholder {
+  color: #555;
+}
+button {
+  padding: 11px 16px;
+  border: none;
+  border-radius: 9px;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button:active {
+  background: #00b840;
+}
+button.gray {
+  background: #2a2a2a;
+  color: #ddd;
+}
+button.red {
+  background: #ff453a;
+  color: #fff;
+}
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.tab {
+  padding: 10px 16px;
+  border-radius: 9px;
+  background: #1c1c1e;
+  color: #aaa;
+  border: none;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+.tab.active {
+  background: #00d54b;
+  color: #000;
+}
+.tab-content {
+  display: none;
+}
+.tab-content.active {
+  display: block;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 10px;
+}
+th, td {
+  border-bottom: 1px solid #242424;
+  padding: 10px 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+th {
+  color: #8a8a8e;
+  font-weight: 600;
+  font-size: 12px;
+}
+td.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+td input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+  background: #0f0f0f;
+  color: #fff;
+  font-size: 13px;
+  width: 100px;
+  outline: none;
+}
+.avatar-box {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #00d54b;
+  color: #000;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 13px;
+}
+.avatar-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mono {
+  color: #aaa;
+  font-size: 12px;
+}
+.msg {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #00d54b;
+  min-height: 18px;
+}
+.msg.err {
+  color: #ff6b6b;
+}
+.empty {
+  color: #666;
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  table { font-size: 12px; }
+  th:nth-child(2), td:nth-child(2) { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="loginView">
+    <h1>Cash App 管理后台</h1>
+    <div class="desc">管理员登录后可创建用户、充值余额、设置头像、查看流水</div>
+    <div class="panel">
+      <h2>管理员登录</h2>
+      <div class="field">
+        <input id="adminUser" placeholder="管理员账号" value="admin">
+        <input id="adminPwd" type="password" placeholder="管理员密码">
+        <button onclick="adminLogin()">登录后台</button>
+      </div>
+      <div class="msg" id="loginMsg"></div>
+    </div>
+  </div>
+
+  <div id="mainView" style="display:none;">
+    <h1>Cash App 管理后台</h1>
+    <div class="desc">当前管理员：admin</div>
+
+    <div class="tabs">
+      <button class="tab active" id="tabUserBtn" onclick="switchTab('user')">用户管理</button>
+      <button class="tab" id="tabLogBtn" onclick="switchTab('log')">交易流水</button>
+    </div>
+
+    <div class="tab-content active" id="userTab">
+      <div class="panel">
+        <h2>新增用户</h2>
+        <div class="field">
+          <input id="newUid" placeholder="用户 Cash ID（登录用）">
+          <input id="newPwd" placeholder="登录密码">
+          <input id="newNick" placeholder="昵称">
+          <input id="newCashtag" placeholder="Cash 头像 cashtag（不带$，可留空）">
+          <button onclick="addUser()">创建账号</button>
+        </div>
+        <div class="msg" id="addMsg"></div>
+        <div class="desc" style="margin:10px 0 0;">新账号余额自动随机 1,500,000 ~ 2,000,000 美元</div>
+      </div>
+
+      <div class="panel">
+        <h2>用户列表</h2>
+        <div id="userTableWrap"><div class="empty">加载中...</div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="logTab">
+      <div class="panel">
+        <h2>全部交易流水</h2>
+        <div id="logTableWrap"><div class="empty">加载中...</div></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '/api';
+let currentTab = 'user';
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('userTab').classList.toggle('active', tab === 'user');
+  document.getElementById('logTab').classList.toggle('active', tab === 'log');
+  document.getElementById('tabUserBtn').classList.toggle('active', tab === 'user');
+  document.getElementById('tabLogBtn').classList.toggle('active', tab === 'log');
+  if (tab === 'user') loadUsers();
+  else loadLogs();
+}
+
+async function adminLogin() {
+  const username = document.getElementById('adminUser').value.trim();
+  const password = document.getElementById('adminPwd').value.trim();
+  const msg = document.getElementById('loginMsg');
+  msg.classList.remove('err');
+  msg.innerText = '';
+
+  try {
+    const res = await fetch(API + '/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      msg.classList.add('err');
+      msg.innerText = data.msg;
+      return;
+    }
+    document.getElementById('loginView').style.display = 'none';
+    document.getElementById('mainView').style.display = 'block';
+    loadUsers();
+  } catch (e) {
+    msg.classList.add('err');
+    msg.innerText = '网络错误，请重试';
+  }
+}
+
+async function addUser() {
+  const uid = document.getElementById('newUid').value.trim();
+  const password = document.getElementById('newPwd').value.trim();
+  const nickname = document.getElementById('newNick').value.trim();
+  const cashtag = document.getElementById('newCashtag').value.trim();
+  const msg = document.getElementById('addMsg');
+  msg.classList.remove('err');
+  msg.innerText = '';
+
+  if (!uid || !password) {
+    msg.classList.add('err');
+    msg.innerText = '用户 Cash ID 和密码必填';
+    return;
+  }
+
+  const avatar = cashtag ? ('https://unavatar.io/cashapp/' + encodeURIComponent(cashtag.replace(/^\$/, ''))) : '';
+
+  try {
+    const res = await fetch(API + '/admin/add-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, password, nickname, avatar })
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      msg.classList.add('err');
+      msg.innerText = data.msg;
+      return;
+    }
+    msg.innerText = data.msg;
+    document.getElementById('newUid').value = '';
+    document.getElementById('newPwd').value = '';
+    document.getElementById('newNick').value = '';
+    document.getElementById('newCashtag').value = '';
+    loadUsers();
+  } catch (e) {
+    msg.classList.add('err');
+    msg.innerText = '网络错误，请重试';
+  }
+}
+
+function avatarCell(u) {
+  if (u.avatar) {
+    return '<div class="avatar-box"><img src="' + u.avatar + '" onerror="this.parentNode.innerHTML=\'' + u.uid.slice(0, 1).toUpperCase() + '\'"></div>';
+  }
+  return '<div class="avatar-box">' + u.uid.slice(0, 1).toUpperCase() + '</div>';
+}
+
+async function loadUsers() {
+  const wrap = document.getElementById('userTableWrap');
+  try {
+    const res = await fetch(API + '/admin/users');
+    const data = await res.json();
+    const list = data.list || [];
+    if (list.length === 0) {
+      wrap.innerHTML = '<div class="empty">还没有用户，请先在上方创建账号</div>';
+      return;
+    }
+
+    let html =
+      '<table><thead><tr>' +
+      '<th>头像</th><th>Cash ID</th><th>昵称</th><th>余额</th><th>头像 cashtag</th><th>操作</th>' +
+      '</tr></thead><tbody>';
+
+    list.forEach(function (u, i) {
+      html +=
+        '<tr>' +
+          '<td>' + avatarCell(u) + '</td>' +
+          '<td>' + u.uid + '</td>' +
+          '<td>' + (u.nickname || '') + '</td>' +
+          '<td>$' + Number(u.balance).toLocaleString('en-US') + '</td>' +
+          '<td><input id="tag_' + i + '" placeholder="cashtag"><button class="gray" style="margin-left:6px;" onclick="setAvatar(\'' + u.uid + '\',' + i + ')">设头像</button></td>' +
+          '<td class="actions">' +
+            '<input type="number" id="bal_' + i + '" value="' + u.balance + '">' +
+            '<button onclick="setBalance(\'' + u.uid + '\',' + i + ')">改余额</button>' +
+            '<button class="red" onclick="kickUser(\'' + u.uid + '\')">踢下线</button>' +
+          '</td>' +
+        '</tr>';
+    });
+
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  } catch (e) {
+    wrap.innerHTML = '<div class="empty">加载失败，请刷新</div>';
+  }
+}
+
+async function setBalance(uid, i) {
+  const val = document.getElementById('bal_' + i).value;
+  await fetch(API + '/admin/set-balance', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid: uid, newBalance: val })
+  });
+  loadUsers();
+}
+
+async function setAvatar(uid, i) {
+  const tag = document.getElementById('tag_' + i).value.trim();
+  if (!tag) {
+    alert('请先填写 cashtag（不带 $）');
+    return;
+  }
+  const res = await fetch(API + '/admin/set-avatar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid: uid, cashtag: tag })
+  });
+  const data = await res.json();
+  alert(data.msg);
+  loadUsers();
+}
+
+async function kickUser(uid) {
+  await fetch(API + '/admin/kick', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid: uid })
+  });
+  alert('已踢下线');
+}
+
+async function loadLogs() {
+  const wrap = document.getElementById('logTableWrap');
+  try {
+    const res = await fetch(API + '/admin/logs');
+    const data = await res.json();
+    const list = data.list || [];
+    if (list.length === 0) {
+      wrap.innerHTML = '<div class="empty">暂无交易流水</div>';
+      return;
+    }
+
+    let html =
+      '<table><thead><tr>' +
+      '<th>时间</th><th>付款人</th><th>收款人</th><th>金额</th><th>备注</th><th>交易号</th>' +
+      '</tr></thead><tbody>';
+
+    list.forEach(function (r) {
+      html +=
+        '<tr>' +
+          '<td class="mono">' + r.time + '</td>' +
+          '<td>' + (r.nickname || r.uid) + '</td>' +
+          '<td>' + r.targetNick + '</td>' +
+          '<td>$' + Number(r.amount).toLocaleString('en-US') + '</td>' +
+          '<td>' + (r.remark || '-') + '</td>' +
+          '<td class="mono">' + r.recordId + '</td>' +
+        '</tr>';
+    });
+
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  } catch (e) {
+    wrap.innerHTML = '<div class="empty">加载失败，请刷新</div>';
+  }
+}
+</script>
+</body>
+</html>
