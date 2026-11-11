@@ -1,26 +1,27 @@
 /* =========================================================
-Cash App Simulator 【修复：search-history不发起请求】
-特征：打开Pay弹窗，控制台一定打印【打开搜索页，开始加载历史】，并且Network出现 /user/search-history
+Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
 ========================================================= */
-function getHistoryCache(){
-  const str = localStorage.getItem('cash_history_'+uid);
-  if(str) return JSON.parse(str);
-  return null;
-}
-function setHistoryCache(arr){
-  localStorage.setItem('cash_history_'+uid, JSON.stringify(arr.slice(0,8)));
-}
 (function () {
   'use strict';
   var API = '/api';
   var $ = function (id) { return document.getElementById(id); };
   var uid = localStorage.getItem('uid') || '';
   var clientId = localStorage.getItem('clientId') || '';
+
+  // =========缓存函数移到闭包内部，uid已经存在=========
+  function getHistoryCache(){
+    const str = localStorage.getItem('cash_history_'+uid);
+    if(str) return JSON.parse(str);
+    return null;
+  }
+  function setHistoryCache(arr){
+    localStorage.setItem('cash_history_'+uid, JSON.stringify(arr.slice(0,8)));
+  }
+
   if (!uid || !clientId) {
     location.replace('/');
     return;
   }
-
   var balance = 0;
   var myNickname = uid;
   var amountStr = '0';
@@ -56,7 +57,6 @@ function setHistoryCache(arr){
     var t = String(name || '?').replace(/^\$/g, '').trim();
     return (t.charAt(0) || '?').toUpperCase();
   }
-
   function renderAmount() {
     $('amountText').textContent = '$' + money(amountStr);
     $('searchTitle').textContent = 'Pay $' + money(amountStr);
@@ -73,7 +73,6 @@ function setHistoryCache(arr){
     av.textContent = initial(myNickname);
     av.style.background = colorOf(uid);
   }
-
   function buildAvatar(user, small) {
     var br = document.createElement('div');
     br.className = 'avatar' + (small ? ' avatar-sm' : '');
@@ -144,11 +143,10 @@ function setHistoryCache(arr){
   }
   function renderEmptyState(text) {
     var d = document.createElement('div');
-    d.className = 'no-hint';
+    d.className = 'no‑hint';
     d.textContent = text;
     $('resultsList').appendChild(d);
   }
-
   function showSheet(name) {
     $('sheetLayer').classList.add('open');
     SHEETS.forEach(function (id) {
@@ -160,9 +158,8 @@ function setHistoryCache(arr){
     $('sheetLayer').classList.remove('open');
     SHEETS.forEach(function (id) { $(id).classList.remove('open'); });
   }
-
   function setKbHeight(h) {
-    document.documentElement.style.setProperty('--kb-h', h + 'px');
+    document.documentElement.style.setProperty('--kb‑h', h + 'px');
   }
   function buildKb() {
     var kb = $('softKb');
@@ -175,14 +172,14 @@ function setHistoryCache(arr){
     kb.innerHTML = '';
     rows.forEach(function (row) {
       var r = document.createElement('div');
-      r.className = 'kb-row';
+      r.className = 'kb‑row';
       row.forEach(function (k) {
         var b = document.createElement('button');
         b.type = 'button';
-        b.className = 'kb-key';
-        if (k === 'ok') b.className += ' kb-ok';
-        if (k === 'del') b.className += ' kb-del';
-        if (k === 'space') b.className += ' kb-space';
+        b.className = 'kb‑key';
+        if (k === 'ok') b.className += ' kb‑ok';
+        if (k === 'del') b.className += ' kb‑del';
+        if (k === 'space') b.className += ' kb‑space';
         b.textContent = k === 'del' ? '⌫' : (k === 'ok' ? '✓' : (k === 'space' ? 'space' : k));
         b.addEventListener('click', function (e) {
           e.preventDefault();
@@ -215,7 +212,7 @@ function setHistoryCache(arr){
       else searchStr += (k === 'space' ? ' ' : k);
       if (searchStr.length > 22) searchStr = searchStr.slice(0, 22);
       $('searchInput').value = searchStr;
-      $('searchBox').classList.toggle('has-value', searchStr.length > 0);
+      $('searchBox').classList.toggle('has‑value', searchStr.length > 0);
       scheduleSearch();
       return;
     }
@@ -235,7 +232,6 @@ function setHistoryCache(arr){
     b.disabled = !on;
     b.classList.toggle('active', on);
   }
-
   function scheduleSearch() {
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(renderResults, 260);
@@ -244,56 +240,53 @@ function setHistoryCache(arr){
     $('resultsList').innerHTML = '';
   }
 
-async function loadHistoryList() {
-  console.log('==== 打开搜索页，开始加载历史 ====');
-  clearResults();
-  const cache = getHistoryCache();
-  if(cache && Array.isArray(cache)){
-    await renderHistory(cache);
-    return;
-  }
-
-  try {
-    const url = API + '/user/search-history/' + encodeURIComponent(uid);
-    console.log('请求地址：', url);
-    const resHist = await fetch(url);
-    const dataHist = await resHist.json();
-    console.log('history后端返回：', dataHist);
-    if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) {
-      renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-      setHistoryCache([]);
+  async function loadHistoryList() {
+    console.log('==== 打开搜索页，开始加载历史 ====');
+    clearResults();
+    const cache = getHistoryCache();
+    if(cache && Array.isArray(cache)){
+      await renderHistory(cache);
       return;
     }
-    setHistoryCache(dataHist.list.slice(0,8));
-    await renderHistory(dataHist.list.slice(0,8));
-  }catch(err){
-    clearResults();
-  }
-}
-
-async function renderHistory(idArr){
-  const userList = [];
-  for(const id of idArr) {
-    try{
-      const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id));
-      const d = await r.json();
-      if(d && d.ok && d.user) {
-        userList.push(d.user);
-      }else{
-        userList.push(makeDemoUser(id));
+    try {
+      const url = API + '/user/search‑history/' + encodeURIComponent(uid);
+      console.log('请求地址：', url);
+      const resHist = await fetch(url);
+      const dataHist = await resHist.json();
+      console.log('history后端返回：', dataHist);
+      if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) {
+        renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+        setHistoryCache([]);
+        return;
       }
-    }catch(e){
-      console.log('lookup单个用户失败',id,e);
-      userList.push(makeDemoUser(id));
-    }
-  }
-  userList.forEach(u=>{
-    $('#resultsList').appendChild(makeRow(u));
-  });
-}
+      setHistoryCache(dataHist.list.slice(0,8));
+      await renderHistory(dataHist.list.slice(0,8));
+    }catch(err){
       console.error('loadHistoryList 整体报错：',err);
+      clearResults();
       renderEmptyState('No recent contacts. Type a $Cashtag to search.');
     }
+  }
+
+  async function renderHistory(idArr){
+    const userList = [];
+    for(const id of idArr) {
+      try{
+        const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id));
+        const d = await r.json();
+        if(d && d.ok && d.user) {
+          userList.push(d.user);
+        }else{
+          userList.push(makeDemoUser(id));
+        }
+      }catch(e){
+        console.log('lookup单个用户失败',id,e);
+        userList.push(makeDemoUser(id));
+      }
+    }
+    userList.forEach(u=>{
+      $('resultsList').appendChild(makeRow(u));
+    });
   }
 
   function renderResults() {
@@ -330,7 +323,6 @@ async function renderHistory(idArr){
         $('resultsList').appendChild(makeRow(makeDemoUser(q)));
       });
   }
-
   function pickUser(user) {
     targetUser = user;
     noteStr = '';
@@ -344,24 +336,24 @@ async function renderHistory(idArr){
     showSheet('noteSheet');
     saveHistory(user.uid);
   }
-
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
     if (!clean) return;
-   fetch(API + '/user/save-search', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ uid: uid, searchId: clean })
-})
-.then(res=>res.json())
-.then(ret=>{
-  console.log("save-search resp",ret);
-  let cache = getHistoryCache() || [];
-  cache = cache.filter(x=>x!==clean);
-  cache.unshift(clean);
-  setHistoryCache(cache);
-})
-.catch(err=>{console.error("save-search err",err);});
+    fetch(API + '/user/save‑search', {
+      method: 'POST',
+      headers: { 'Content‑Type': 'application/json' },
+      body: JSON.stringify({ uid: uid, searchId: clean })
+    })
+    .then(res=>res.json())
+    .then(ret=>{
+      console.log("save‑search resp",ret);
+      let cache = getHistoryCache() || [];
+      cache = cache.filter(x=>x!==clean);
+      cache.unshift(clean);
+      setHistoryCache(cache);
+    })
+    .catch(err=>{console.error("save‑search err",err);});
+  }
 
   function pressNum(k) {
     if (k === 'del') {
@@ -397,16 +389,15 @@ async function renderHistory(idArr){
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
   function checkKick() {
-    fetch(API + '/user/check-kick', {
+    fetch(API + '/user/check‑kick', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content‑Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
       .then(d => { if(d && d.kicked){ if(kickTimer)clearInterval(kickTimer); showKickMask();} })
       .catch(() => {});
   }
-
   function boot() {
     buildKb();
     renderAmount();
@@ -415,7 +406,7 @@ async function renderHistory(idArr){
     updateContinue();
     fetch(API + '/user/info', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content‑Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
@@ -433,7 +424,6 @@ async function renderHistory(idArr){
       .catch(function () {});
     kickTimer = setInterval(checkKick, 9000);
   }
-
   function bind() {
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
@@ -441,8 +431,6 @@ async function renderHistory(idArr){
       var key = btn.dataset.key;
       pressNum(key);
     });
-
-    // Pay按钮这里，【先打开弹窗，再强制加载历史】
     $('payEntry').addEventListener('click', function () {
       var v = parseFloat(amountStr);
       if (!v || v <= 0) {
@@ -452,19 +440,17 @@ async function renderHistory(idArr){
       }
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
+      $('searchBox').classList.remove('has‑value');
       showSheet('searchSheet');
-      // 强制调用加载历史
       loadHistoryList();
     });
-
     $('closeSearch').addEventListener('click', function () { hideSheets(); });
     $('searchInput').addEventListener('click', function () { openKb('search'); });
     $('searchClear').addEventListener('click', function (e) {
       e.stopPropagation();
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
+      $('searchBox').classList.remove('has‑value');
       loadHistoryList();
     });
     $('noteInput').addEventListener('click', function () { openKb('note'); });
@@ -503,7 +489,7 @@ async function renderHistory(idArr){
       setTimeout(function () {
         fetch(API + '/user/pay', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content‑Type': 'application/json' },
           body: JSON.stringify({
             uid: uid,
             clientId: clientId,
@@ -565,7 +551,7 @@ async function renderHistory(idArr){
       searchStr = '';
       $('noteInput').value = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has-value');
+      $('searchBox').classList.remove('has‑value');
       updateContinue();
       renderAmount();
       renderBalance();
