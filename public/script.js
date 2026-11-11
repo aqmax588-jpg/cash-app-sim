@@ -1,6 +1,6 @@
 /* =========================================================
-   Cash App Simulator - script.js【修复搜索历史时序BUG】
-   改动：删除旧loadHistory异步嵌套逻辑；打开搜索弹窗实时拉取并渲染历史；pickUser保存历史；增加控制台日志
+   Cash App Simulator - script.js【修复不发起search‑history请求】
+   改动：payEntry点击：先showSheet打开弹窗，再调用renderResults
    ========================================================= */
 (function () {
   'use strict';
@@ -12,7 +12,7 @@
     location.replace('/');
     return;
   }
-  /* ---------------- 运行状态 ---------------- */
+
   var balance = 0;
   var myNickname = uid;
   var amountStr = '0';
@@ -27,7 +27,7 @@
   var kickTimer = null;
   var KBH = 248;
   var SHEETS = ['searchSheet', 'noteSheet', 'confirmSheet', 'loadingSheet'];
-  /* ---------------- 工具 ---------------- */
+
   function money(v) {
     var p = String(v == null ? '0' : v).split('.');
     p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -48,7 +48,7 @@
     var t = String(name || '?').replace(/^\$/g, '').trim();
     return (t.charAt(0) || '?').toUpperCase();
   }
-  /* ---------------- 渲染基础信息 ---------------- */
+
   function renderAmount() {
     $('amountText').textContent = '$' + money(amountStr);
     $('searchTitle').textContent = 'Pay $' + money(amountStr);
@@ -65,7 +65,7 @@
     av.textContent = initial(myNickname);
     av.style.background = colorOf(uid);
   }
-  /* ---------------- 头像组件 ---------------- */
+
   function buildAvatar(user, small) {
     var br = document.createElement('div');
     br.className = 'avatar' + (small ? ' avatar-sm' : '');
@@ -106,7 +106,7 @@
       el.appendChild(img);
     }
   }
-  /* ---------------- 弹窗控制 ---------------- */
+
   function showSheet(name) {
     $('sheetLayer').classList.add('open');
     SHEETS.forEach(function (id) {
@@ -118,7 +118,7 @@
     $('sheetLayer').classList.remove('open');
     SHEETS.forEach(function (id) { $(id).classList.remove('open'); });
   }
-  /* ---------------- 自定义键盘 ---------------- */
+
   function setKbHeight(h) {
     document.documentElement.style.setProperty('--kb-h', h + 'px');
   }
@@ -193,7 +193,7 @@
     b.disabled = !on;
     b.classList.toggle('active', on);
   }
-  /* ---------------- 搜索 ---------------- */
+
   function scheduleSearch() {
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(renderResults, 260);
@@ -235,16 +235,18 @@
     $('resultsList').appendChild(d);
   }
   function renderResults() {
+    console.log('==== renderResults 执行了 ====');
     var q = searchStr.trim().replace(/^\$/g, '');
     var seq = ++searchSeq;
     clearResults();
-    //====输入框为空：拉取搜索历史（修复版，不再依赖全局historyList变量）====
     if (!q) {
+      console.log('进入空搜索分支，准备拉取历史');
       $('resultsHead').textContent = 'RESULTS';
       fetch(API + '/user/search-history/' + encodeURIComponent(uid))
         .then(r => r.json())
         .then(data => {
           clearResults();
+          console.log("拿到历史列表：", data.list);
           if (!data || !data.ok || !Array.isArray(data.list) || data.list.length === 0) {
             renderEmptyState('No recent contacts. Type a $Cashtag to search.');
             return;
@@ -254,7 +256,6 @@
             var tempUser = makeDemoUser(id);
             var domRow = makeRow(tempUser);
             $('resultsList').appendChild(domRow);
-            // 追加DOM之后，后台再异步去拿真实昵称头像，更新该行，不阻塞界面渲染
             fetch(API+'/user/lookup/'+encodeURIComponent(id))
               .then(r=>r.json())
               .then(d=>{
@@ -264,16 +265,16 @@
                   domRow.querySelector('.result-tag').textContent = '$' + String(d.user.uid||'').replace(/^\$/g,'');
                 }
               })
-              .catch(()=>{});
+              .catch(e=>console.log('lookup失败：',e));
           });
         })
-        .catch(()=>{
+        .catch(err=>{
           clearResults();
+          console.error('获取历史失败：',err);
           renderEmptyState('No recent contacts. Type a $Cashtag to search.');
         });
       return;
     }
-    //====有搜索关键词，执行lookup搜索====
     $('resultsHead').textContent = 'RESULTS';
     var pendingTimer = setTimeout(function () {
       if (seq !== searchSeq) return;
@@ -318,7 +319,6 @@
     showSheet('noteSheet');
     saveHistory(user.uid);
   }
-  //====删除旧的loadHistory函数，完全不再使用====
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
     if (!clean) return;
@@ -331,7 +331,7 @@
     .then(ret=>{console.log("保存搜索历史结果：",ret);})
     .catch(err=>{console.error("保存搜索历史失败",err);});
   }
-  /* ---------------- 首页数字键盘 ---------------- */
+
   function pressNum(k) {
     if (k === 'del') {
       amountStr = amountStr.length > 1 ? amountStr.slice(0, -1) : '0';
@@ -351,42 +351,31 @@
     }
     renderAmount();
   }
-  /* ---------------- 顶部通知 ---------------- */
+
   function showToast(amt, name) {
     $('toastBody').textContent = 'You paid ' + name + ' $' + money2(amt);
     $('toast').classList.add('show');
-    setTimeout(function () {
-      $('toast').classList.remove('show');
-    }, 2000);
+    setTimeout(function () { $('toast').classList.remove('show'); }, 2000);
   }
-  /* ---------------- 成功页 ---------------- */
   function showSuccess(amt) {
     $('successText').textContent = 'You sent $' + money2(amt) + ' to ' + (targetUser ? (targetUser.nickname || targetUser.uid) : '');
     $('successScreen').classList.add('open');
     $('homeScreen').style.display = 'none';
-    setTimeout(function () {
-      showToast(amt, targetUser ? (targetUser.nickname || targetUser.uid) : '');
-    }, 20);
+    setTimeout(function () { showToast(amt, targetUser ? (targetUser.nickname || targetUser.uid) : ''); }, 20);
   }
-  /* ---------------- 提示框 ---------------- */
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
-  /* ---------------- 登录态校验 ---------------- */
   function checkKick() {
     fetch(API + '/user/check-kick', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d && d.kicked) {
-          if (kickTimer) clearInterval(kickTimer);
-          showKickMask();
-        }
-      })
-      .catch(function () {});
+      .then(r=>r.json())
+      .then(d=>{ if(d && d.kicked){ if(kickTimer)clearInterval(kickTimer); showKickMask();}})
+      .catch(()=>{});
   }
+
   function boot() {
     buildKb();
     renderAmount();
@@ -398,34 +387,30 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
-      .then(function (r) { return r.json(); })
+      .then(r=>r.json())
       .then(function (d) {
         if (!d || !d.ok) {
-          if (d && /kicked|Session/.test(d.msg || '')) {
-            showKickMask();
-          } else {
-            localStorage.removeItem('uid');
-            localStorage.removeItem('clientId');
-            location.replace('/');
-          }
+          if (d && /kicked|Session/.test(d.msg || '')) { showKickMask(); }
+          else { localStorage.removeItem('uid'); localStorage.removeItem('clientId'); location.replace('/'); }
           return;
         }
         balance = Number(d.user.balance) || 0;
         myNickname = d.user.nickname || d.user.uid;
         renderBalance();
         renderMe();
-        //boot阶段不再调用loadHistory，打开Pay弹窗才拉取历史
       })
       .catch(function () {});
     kickTimer = setInterval(checkKick, 9000);
   }
-  /* ---------------- 事件绑定 ---------------- */
+
   function bind() {
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
       if (!btn) return;
       pressNum(btn.getAttribute('data-key'));
     });
+
+    // ==========这里是修改好的Pay按钮事件【重点】先弹窗，再执行renderResults ==========
     $('payEntry').addEventListener('click', function () {
       var v = parseFloat(amountStr);
       if (!v || v <= 0) {
@@ -437,9 +422,10 @@
       searchSeq++;
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
-      renderResults();
-      showSheet('searchSheet');
+      showSheet('searchSheet'); // 先打开弹窗DOM
+      renderResults(); // 弹窗打开后再拉取搜索历史
     });
+
     $('closeSearch').addEventListener('click', function () { hideSheets(); });
     $('searchInput').addEventListener('click', function () { openKb('search'); });
     $('searchClear').addEventListener('click', function (e) {
@@ -477,10 +463,7 @@
       if (payBusy) return;
       var amt = parseFloat(amountStr);
       if (!amt || amt <= 0) { hideSheets(); return; }
-      if (Number(balance) < amt) {
-        showAlert();
-        return;
-      }
+      if (Number(balance) < amt) { showAlert(); return; }
       payBusy = true;
       showSheet('loadingSheet');
       var wait = 2000 + Math.random() * 1000;
@@ -496,7 +479,7 @@
             targetUid: targetUser ? targetUser.uid : ''
           })
         })
-          .then(function (r) { return r.json(); })
+          .then(r=>r.json())
           .then(function (d) {
             payBusy = false;
             if (!d || !d.ok) {
