@@ -1,7 +1,7 @@
 {
   "name": "cash-app-sim",
   "version": "1.0.0",
-  "description": "Cash App simulator with admin, login, kick, transaction log",
+  "description": "Cash App simulator with independent toast timer, anti-multi-login, admin panel",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
