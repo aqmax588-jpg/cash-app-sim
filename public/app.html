@@ -1,16 +1,149 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Cash Simulator</title>
-  <link rel="stylesheet" href="/style.css">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#00D54F" />
+<title>Cash</title>
+<link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <div id="app-wrap"></div>
-  <div id="successWrap" class="success-page"></div>
-  <div class="top-toast" id="topToast"></div>
-  <div class="soft-keyboard" id="softKeyboard"></div>
-  <script src="/app.js"></script>
+
+<!-- ============ 主页（绿色） ============ -->
+<div class="home-screen" id="homeScreen">
+  <div class="topbar">
+    <div class="brand-mark"></div>
+    <div class="avatar-btn"></div>
+  </div>
+
+  <div class="amount-wrap">
+    <div class="amount" id="amountText">$0</div>
+  </div>
+
+  <div class="quick-row">
+    <button class="quick-btn" type="button">Pool</button>
+    <button class="quick-btn" type="button">Request</button>
+  </div>
+
+  <div class="numkeypad" id="numkeypad">
+    <button class="numkey" type="button" data-key="1">1</button>
+    <button class="numkey" type="button" data-key="2">2</button>
+    <button class="numkey" type="button" data-key="3">3</button>
+    <button class="numkey" type="button" data-key="4">4</button>
+    <button class="numkey" type="button" data-key="5">5</button>
+    <button class="numkey" type="button" data-key="6">6</button>
+    <button class="numkey" type="button" data-key="7">7</button>
+    <button class="numkey" type="button" data-key="8">8</button>
+    <button class="numkey" type="button" data-key="9">9</button>
+    <button class="numkey" type="button" data-key=".">.</button>
+    <button class="numkey" type="button" data-key="0">0</button>
+    <button class="numkey del" type="button" data-key="del">⌫</button>
+  </div>
+
+  <button class="pay-entry" type="button" id="payEntry">Pay</button>
+
+  <div class="tabbar">
+    <div class="tab-balance">$100.00M</div>
+    <div class="tab-icons">
+      <span class="ti ti-home"></span>
+      <span class="ti ti-dollar">$</span>
+      <span class="ti ti-card"></span>
+      <span class="ti ti-clock"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 弹窗层 ============ -->
+<div class="sheet-layer" id="sheetLayer">
+
+  <!-- 搜索弹窗 -->
+  <div class="sheet" id="searchSheet">
+    <div class="sheet-head">
+      <button class="icon-btn" type="button" id="closeSearch">✕</button>
+    </div>
+    <h2 class="sheet-title" id="searchTitle">Pay $0</h2>
+    <div class="pay-to" id="searchPayTo">Pay 0 to</div>
+
+    <div class="search-box">
+      <span class="search-ico">⌕</span>
+      <input class="search-field" id="searchInput" type="text" placeholder="$Cashtag" readonly autocomplete="off" />
+      <button class="search-clear" type="button" id="searchClear">✕</button>
+    </div>
+
+    <div class="results-head">RESULTS</div>
+    <div class="results-list" id="resultsList"></div>
+  </div>
+
+  <!-- 备注弹窗 -->
+  <div class="sheet" id="noteSheet">
+    <div class="sheet-head">
+      <button class="icon-btn" type="button" id="noteBack">←</button>
+    </div>
+    <div class="pay-to" id="notePayTo">Pay 0 to</div>
+    <div class="target-row">
+      <div class="avatar" id="noteAvatar">R</div>
+      <div class="target-name" id="noteName">rose</div>
+    </div>
+    <input class="note-field" id="noteInput" type="text" placeholder="Add a note" readonly autocomplete="off" />
+    <button class="continue-btn" type="button" id="continueBtn" disabled>Continue</button>
+  </div>
+
+  <!-- 确认支付弹窗 -->
+  <div class="sheet" id="confirmSheet">
+    <div class="pay-to" id="confirmPayTo">Pay 0 to</div>
+    <div class="target-row">
+      <div class="avatar" id="confirmAvatar">R</div>
+      <div class="target-name" id="confirmName">rose</div>
+    </div>
+    <div class="note-show" id="confirmNote">BLESS</div>
+    <button class="style-btn" type="button" id="styleBtn">+ Style it</button>
+
+    <div class="balance-line">
+      <span class="cash-dot">$</span>
+      <span>Cash balance <b id="balanceText">$0.00</b></span>
+    </div>
+    <div class="warn-text">Payments can't be canceled once they're sent.</div>
+    <button class="confirm-pay-btn" type="button" id="confirmPay">Pay</button>
+  </div>
+
+  <!-- 加载弹窗 -->
+  <div class="sheet sheet-loading" id="loadingSheet">
+    <div class="spinner"></div>
+  </div>
+</div>
+
+<!-- ============ 成功页 ============ -->
+<div class="success-screen" id="successScreen">
+  <div class="success-check">✓</div>
+  <div class="success-text" id="successText">You sent $0.00 to rose</div>
+  <div class="success-actions">
+    <button class="btn-receipt" type="button" id="receiptBtn">Receipt</button>
+    <button class="btn-done" type="button" id="doneBtn">Done</button>
+  </div>
+</div>
+
+<!-- ============ 顶部通知 ============ -->
+<div class="toast" id="toast">
+  <div class="toast-top">
+    <span class="toast-app">Cash App</span>
+    <span class="toast-time">now</span>
+  </div>
+  <div class="toast-body" id="toastBody">You paid rose $0.00</div>
+</div>
+
+<!-- ============ 自定义键盘 ============ -->
+<div class="soft-kb" id="softKb"></div>
+
+<!-- ============ 余额不足提示 ============ -->
+<div class="alert-mask" id="alertMask">
+  <div class="alert-box">
+    <div class="alert-title">Insufficient balance</div>
+    <div class="alert-desc">You don't have enough balance to complete this payment.</div>
+    <button type="button" id="alertOk">OK</button>
+  </div>
+</div>
+
+<script src="/app.js"></script>
 </body>
 </html>
