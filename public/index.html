@@ -42,22 +42,6 @@ async function login(){
     msgBox.innerText = data.msg;
   }
 }
-setInterval(async ()=>{
-  const uid = localStorage.getItem("uid");
-  const cid = localStorage.getItem("clientId");
-  if(!uid || !cid) return;
-  const r = await fetch("/api/user/check-kick", {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({uid, clientId:cid})
-  });
-  const d = await r.json();
-  if(d.kicked){
-    alert("You have been logged out on another device!");
-    localStorage.clear();
-    location.href = "/";
-  }
-}, 2000);
 </script>
 </body>
 </html>
