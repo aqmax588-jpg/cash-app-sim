@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Cash App</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="loginPage" class="login-wrap">
+  <h2>Login</h2>
+  <input id="userName" placeholder="Username">
+  <input id="userPwd" type="password" placeholder="Password">
+  <button onclick="userLogin()">Sign In</button>
+</div>
+<div id="app" class="app-wrap" style="display:none">
+  <div id="topNotification" class="top-notification hide-animate">
+    <span class="notify-text"></span>
+  </div>
+  <div id="pageWrap"></div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>

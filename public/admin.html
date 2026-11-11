@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>账号管理后台</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui}
+body{background:#111;color:#fff;padding:20px}
+.box{max-width:1200px;margin:0 auto;background:#222;padding:24px;border-radius:16px}
+input,button{padding:10px 12px;font-size:16px;border-radius:8px;border:none}
+input{width:220px;margin:6px}
+button{background:#00a850;color:#000;font-weight:bold;cursor:pointer;margin:4px}
+.row{margin:12px 0}
+table{width:100%;border-collapse:collapse;margin-top:16px}
+th,td{border:1px solid #444;padding:10px;text-align:center}
+th{background:#333}
+.tab-btn{background:#333;color:#fff;margin-right:8px}
+.tab-btn.active{background:#00a850;color:#000}
+.tab-content{display:none}
+.tab-content.active{display:block}
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>管理员登录</h2>
+  <div id="adminLogin">
+    <input id="adUser" placeholder="管理员账号" value="admin">
+    <input id="adPwd" placeholder="密码" value="admin123">
+    <button onclick="adminLogin()">登录后台</button>
+  </div>
+  <div id="adminPanel" style="display:none">
+    <div class="tab-wrap">
+      <button class="tab-btn active" onclick="switchTab('accountTab')">账号管理</button>
+      <button class="tab-btn" onclick="switchTab('logTab')">交易流水</button>
+    </div>
+
+    <div id="accountTab" class="tab-content active">
+      <h3>创建账号</h3>
+      <div>
+        <input id="newUser" placeholder="用户账号">
+        <input id="newPwd" placeholder="用户密码">
+        <input id="bindTimes" placeholder="换绑次数" value="5">
+        <button onclick="createAccount()">创建账号（自动随机余额 150w~200w）</button>
+      </div>
+      <h3>账号列表</h3>
+      <div id="accList"></div>
+    </div>
+
+    <div id="logTab" class="tab-content">
+      <h3>全部真实交易流水</h3>
+      <div id="logList"></div>
+    </div>
+  </div>
+</div>
+<script>
+let adminToken = ""
+const api = "/api"
+let currentTab = "accountTab"
+
+function switchTab(tabId){
+  currentTab = tabId
+  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'))
+  document.querySelectorAll('.tab-btn').forEach(el=>el.classList.remove('active'))
+  document.getElementById(tabId).classList.add('active')
+  event.target.classList.add('active')
+  if(tabId === "logTab") loadLogs()
+  else loadAccounts()
+}
+
+async function adminLogin(){
+  const u = document.getElementById("adUser").value
+  const p = document.getElementById("adPwd").value
+  const r = await fetch(`${api}/admin/login`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({username:u,password:p})
+  })
+  const d = await r.json()
+  if(d.ok){
+    adminToken = d.token
+    document.getElementById("adminLogin").style.display="none"
+    document.getElementById("adminPanel").style.display="block"
+    loadAccounts()
+  }else alert(d.msg)
+}
+
+async function createAccount(){
+  const username = document.getElementById("newUser").value
+  const password = document.getElementById("newPwd").value
+  const bt = document.getElementById("bindTimes").value
+  const r = await fetch(`${api}/admin/create-account`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({username,password,bindTimes:bt})
+  })
+  const d = await r.json()
+  alert(d.msg)
+  loadAccounts()
+}
+
+async function loadAccounts(){
+  const r = await fetch(`${api}/admin/accounts`)
+  const d = await r.json()
+  let html = `<table><tr><th>账号</th><th>余额</th><th>剩余换绑次数</th><th>头像Cashtag（不带$）</th><th>操作</th></tr>`
+  d.list.forEach(acc=>{
+    html += `<tr>
+      <td>${acc.username}</td>
+      <td>$${acc.balance.toFixed(2)}</td>
+      <td>${acc.bindTimes}</td>
+      <td><input id="aid_${acc.id}" placeholder="cashtag"><button onclick="setAvatar('${acc.id}')">拉取头像</button></td>
+      <td>
+        <input id="recharge_${acc.id}" placeholder="充值金额">
+        <button onclick="recharge('${acc.id}')">充值</button>
+        <button onclick="kickAcc('${acc.id}')">强制踢下线</button>
+      </td>
+    </tr>`
+  })
+  html += `</table>`
+  document.getElementById("accList").innerHTML = html
+}
+
+async function loadLogs(){
+  const r = await fetch(`${api}/admin/logs`)
+  const d = await r.json()
+  let html = `<table><tr><th>时间</th><th>账号</th><th>类型</th><th>金额</th><th>备注/收款方</th></tr>`
+  d.list.forEach(item=>{
+    const typeText = item.type === "admin_recharge" ? "管理员充值" : "用户支付"
+    const remark = item.type === "admin_recharge" ? "后台充值" : `付给：${item.receiverName}，备注：${item.note || ''}`
+    html += `<tr>
+      <td>${item.time}</td>
+      <td>${item.username}</td>
+      <td>${typeText}</td>
+      <td>$${item.amount.toFixed(2)}</td>
+      <td>${remark}</td>
+    </tr>`
+  })
+  html += `</table>`
+  document.getElementById("logList").innerHTML = html
+}
+
+async function recharge(accountId){
+  const val = document.getElementById(`recharge_${accountId}`).value
+  const r = await fetch(`${api}/admin/recharge`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({accountId,amount:val})
+  })
+  const d = await r.json()
+  alert(d.msg)
+  loadAccounts()
+}
+
+async function kickAcc(accountId){
+  await fetch(`${api}/admin/kick`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({accountId})
+  })
+  alert("已踢下线")
+  loadAccounts()
+}
+
+async function setAvatar(accountId){
+  const avatarId = document.getElementById(`aid_${accountId}`).value
+  const r = await fetch(`${api}/admin/set-avatar`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({accountId,avatarId})
+  })
+  const d = await r.json()
+  alert(d.msg)
+  loadAccounts()
+}
+</script>
+</body>
+</html>
