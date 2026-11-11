@@ -1,7 +1,6 @@
 /* =========================================================
-   Cash App Simulator - script.js (全量版)
-   对接 server.js: /api/user/info /lookup /pay /search-history /check-kick
-   最小改动：pickUser增加saveHistory调用，saveHistory增加调试日志，其余全部原版
+   Cash App Simulator - script.js【修复搜索历史时序BUG】
+   改动：删除旧loadHistory异步嵌套逻辑；打开搜索弹窗实时拉取并渲染历史；pickUser保存历史；增加控制台日志
    ========================================================= */
 (function () {
   'use strict';
@@ -22,7 +21,6 @@
   var searchStr = '';
   var kbOpen = false;
   var kbTarget = null;
-  var historyList = [];
   var searchSeq = 0;
   var searchTimer = null;
   var payBusy = false;
@@ -78,7 +76,6 @@
       img.className = 'avatar-img';
       img.src = user.avatar;
       img.alt = '';
-      // 中转图片失败时，自动退回原始地址；再失败就隐藏，露出下面的首字母底色
       img.onerror = function () {
         if (user.avatarFallback && img.src !== user.avatarFallback) {
           img.src = user.avatarFallback;
@@ -160,7 +157,6 @@
     kbOpen = true;
     setKbHeight(KBH);
     $('softKb').classList.add('open');
-    // 搜索页弹键盘时切紧凑模式，保证结果行不被键盘挡住
     $('searchSheet').classList.toggle('compact', kind === 'search');
   }
   function closeKb() {
@@ -223,7 +219,6 @@
     row.addEventListener('click', function () { pickUser(user); });
     return row;
   }
-  /* 兜底用户：外观与真实用户完全一致，不带任何标记 */
   function makeDemoUser(raw) {
     var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
     if (!name) name = 'user';
@@ -243,20 +238,43 @@
     var q = searchStr.trim().replace(/^\$/g, '');
     var seq = ++searchSeq;
     clearResults();
-    // 没输入：展示搜索历史
+    //====输入框为空：拉取搜索历史（修复版，不再依赖全局historyList变量）====
     if (!q) {
       $('resultsHead').textContent = 'RESULTS';
-      if (!historyList.length) {
-        renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-        return;
-      }
-      historyList.forEach(function (u) {
-        $('resultsList').appendChild(makeRow(u));
-      });
+      fetch(API + '/user/search-history/' + encodeURIComponent(uid))
+        .then(r => r.json())
+        .then(data => {
+          clearResults();
+          if (!data || !data.ok || !Array.isArray(data.list) || data.list.length === 0) {
+            renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+            return;
+          }
+          var idArr = data.list.slice(0,8);
+          idArr.forEach(function(id){
+            var tempUser = makeDemoUser(id);
+            var domRow = makeRow(tempUser);
+            $('resultsList').appendChild(domRow);
+            // 追加DOM之后，后台再异步去拿真实昵称头像，更新该行，不阻塞界面渲染
+            fetch(API+'/user/lookup/'+encodeURIComponent(id))
+              .then(r=>r.json())
+              .then(d=>{
+                if(d && d.ok && d.user){
+                  setAvatarBox(domRow.querySelector('.avatar'), d.user);
+                  domRow.querySelector('.result-name').textContent = d.user.nickname||d.user.uid;
+                  domRow.querySelector('.result-tag').textContent = '$' + String(d.user.uid||'').replace(/^\$/g,'');
+                }
+              })
+              .catch(()=>{});
+          });
+        })
+        .catch(()=>{
+          clearResults();
+          renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+        });
       return;
     }
+    //====有搜索关键词，执行lookup搜索====
     $('resultsHead').textContent = 'RESULTS';
-    // 接口稍慢时先给一条联系人占位，避免看起来"没反应"
     var pendingTimer = setTimeout(function () {
       if (seq !== searchSeq) return;
       if ($('resultsList').children.length) return;
@@ -278,7 +296,6 @@
           $('resultsList').appendChild(makeRow(real));
           return;
         }
-        // 兜底：直接显示一条联系人，外观与真实结果一致，保证流程能继续
         $('resultsList').appendChild(makeRow(makeDemoUser(q)));
       })
       .catch(function () {
@@ -301,37 +318,7 @@
     showSheet('noteSheet');
     saveHistory(user.uid);
   }
-  /* ---------------- 历史联系人 ---------------- */
-  function loadHistory() {
-    fetch(API + '/user/search-history/' + encodeURIComponent(uid))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data || !data.ok || !Array.isArray(data.list)) return;
-        var ids = data.list.slice(0, 8);
-        var out = [];
-        var i = 0;
-        function step() {
-          if (i >= ids.length) {
-            historyList = out;
-            return;
-          }
-          var id = ids[i++];
-          fetch(API + '/user/lookup/' + encodeURIComponent(id))
-            .then(function (r) { return r.json(); })
-            .then(function (d) {
-              if (d && d.ok && d.user) {
-                out.push({ uid: d.user.uid, nickname: d.user.nickname, avatar: d.user.avatar || '', avatarFallback: d.user.avatarFallback || '' });
-              } else {
-                out.push(makeDemoUser(id));
-              }
-            })
-            .catch(function () { out.push(makeDemoUser(id)); })
-            .then(step);
-        }
-        step();
-      })
-      .catch(function () {});
-  }
+  //====删除旧的loadHistory函数，完全不再使用====
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
     if (!clean) return;
@@ -364,7 +351,7 @@
     }
     renderAmount();
   }
-  /* ---------------- 顶部通知（独立计时） ---------------- */
+  /* ---------------- 顶部通知 ---------------- */
   function showToast(amt, name) {
     $('toastBody').textContent = 'You paid ' + name + ' $' + money2(amt);
     $('toast').classList.add('show');
@@ -427,20 +414,18 @@
         myNickname = d.user.nickname || d.user.uid;
         renderBalance();
         renderMe();
-        loadHistory();
+        //boot阶段不再调用loadHistory，打开Pay弹窗才拉取历史
       })
       .catch(function () {});
     kickTimer = setInterval(checkKick, 9000);
   }
   /* ---------------- 事件绑定 ---------------- */
   function bind() {
-    // 数字键盘
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
       if (!btn) return;
       pressNum(btn.getAttribute('data-key'));
     });
-    // 首页 Pay -> 搜索弹窗
     $('payEntry').addEventListener('click', function () {
       var v = parseFloat(amountStr);
       if (!v || v <= 0) {
@@ -453,14 +438,10 @@
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
       renderResults();
-      if (historyList.length) renderResults();
       showSheet('searchSheet');
     });
-    // 关闭搜索
     $('closeSearch').addEventListener('click', function () { hideSheets(); });
-    // 点搜索框 -> 弹键盘
     $('searchInput').addEventListener('click', function () { openKb('search'); });
-    // 清除
     $('searchClear').addEventListener('click', function (e) {
       e.stopPropagation();
       searchStr = '';
@@ -468,21 +449,17 @@
       $('searchBox').classList.remove('has-value');
       renderResults();
     });
-    // 点备注框 -> 弹键盘
     $('noteInput').addEventListener('click', function () { openKb('note'); });
-    // 弹窗空白处 -> 收键盘（点输入框不收）
     $('sheetLayer').addEventListener('pointerdown', function (e) {
       if (!kbOpen) return;
       if (e.target.closest('.soft-kb')) return;
       if (e.target.id === 'searchInput' || e.target.id === 'noteInput') return;
       closeKb();
     });
-    // 备注页返回
     $('noteBack').addEventListener('click', function () {
       closeKb();
       showSheet('searchSheet');
     });
-    // Continue
     $('continueBtn').addEventListener('click', function () {
       if (!noteStr.trim()) return;
       closeKb();
@@ -491,13 +468,11 @@
       renderBalance();
       showSheet('confirmSheet');
     });
-    // Style it（占位装饰）
     $('styleBtn').addEventListener('click', function () {
       if (noteStr.indexOf('✨') !== -1) return;
       noteStr = noteStr + ' ✨';
       $('confirmNote').textContent = noteStr;
     });
-    // 支付
     $('confirmPay').addEventListener('click', function () {
       if (payBusy) return;
       var amt = parseFloat(amountStr);
@@ -541,7 +516,6 @@
             showSuccess(amt);
           })
           .catch(function () {
-            // 后端不可达时本地扣减，保证演示不中断
             payBusy = false;
             balance = Math.max(0, Number(balance) - amt);
             renderBalance();
@@ -550,18 +524,15 @@
           });
       }, wait);
     });
-    // 余额不足关闭
     $('alertOk').addEventListener('click', function () {
       $('alertMask').classList.remove('open');
       showSheet('confirmSheet');
     });
-    // 被踢下线
     $('kickOk').addEventListener('click', function () {
       localStorage.removeItem('uid');
       localStorage.removeItem('clientId');
       location.replace('/');
     });
-    // Receipt
     $('receiptBtn').addEventListener('click', function () {
       var name = targetUser ? (targetUser.nickname || targetUser.uid) : '';
       alert('Receipt\n\nTo: ' + name + ' ($' + (targetUser ? targetUser.uid : '') + ')\n' +
@@ -569,7 +540,6 @@
         'Note: ' + noteStr + '\n' +
         'Status: Completed');
     });
-    // Done -> 回到最初界面（不清除 toast 计时）
     $('doneBtn').addEventListener('click', function () {
       $('successScreen').classList.remove('open');
       $('homeScreen').style.display = 'flex';
@@ -584,7 +554,6 @@
       renderAmount();
       renderBalance();
       hideSheets();
-      loadHistory();
     });
   }
   window.addEventListener('load', function () {
