@@ -1,7 +1,7 @@
 /* =========================================================
-   Cash App Simulator - script.js【修复不发起search‑history请求】
-   改动：payEntry点击：先showSheet打开弹窗，再调用renderResults
-   ========================================================= */
+Cash App Simulator 【强制拉历史版本】
+打开搜索弹窗，直接单独请求search-history，不再卡在renderResults时序
+========================================================= */
 (function () {
   'use strict';
   var API = '/api';
@@ -234,45 +234,51 @@
     d.textContent = text;
     $('resultsList').appendChild(d);
   }
+
+  // 【单独拉取历史 独立函数，不和renderResults混在一起】
+  function loadHistoryList() {
+    console.log('==== 开始加载历史联系人 ====');
+    clearResults();
+    fetch(API + '/user/search-history/' + encodeURIComponent(uid))
+      .then(r => r.json())
+      .then(data => {
+        console.log("拿到历史列表：", data.list);
+        if (!data || !data.ok || !Array.isArray(data.list) || data.list.length === 0) {
+          renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+          return;
+        }
+        var idArr = data.list.slice(0,8);
+        idArr.forEach(function(id){
+          var tempUser = makeDemoUser(id);
+          var domRow = makeRow(tempUser);
+          $('resultsList').appendChild(domRow);
+          fetch(API+'/user/lookup/'+encodeURIComponent(id))
+            .then(r=>r.json())
+            .then(d=>{
+              if(d && d.ok && d.user){
+                setAvatarBox(domRow.querySelector('.avatar'), d.user);
+                domRow.querySelector('.result-name').textContent = d.user.nickname||d.user.uid;
+                domRow.querySelector('.result-tag').textContent = '$' + String(d.user.uid||'').replace(/^\$/g,'');
+              }
+            })
+            .catch(e=>console.log('lookup失败：',e));
+        });
+      })
+      .catch(err=>{
+        clearResults();
+        console.error('获取历史失败：',err);
+        renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+      });
+  }
+
   function renderResults() {
-    console.log('==== renderResults 执行了 ====');
+    console.log('==== renderResults执行，搜索查询 ====');
     var q = searchStr.trim().replace(/^\$/g, '');
     var seq = ++searchSeq;
     clearResults();
     if (!q) {
-      console.log('进入空搜索分支，准备拉取历史');
-      $('resultsHead').textContent = 'RESULTS';
-      fetch(API + '/user/search-history/' + encodeURIComponent(uid))
-        .then(r => r.json())
-        .then(data => {
-          clearResults();
-          console.log("拿到历史列表：", data.list);
-          if (!data || !data.ok || !Array.isArray(data.list) || data.list.length === 0) {
-            renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-            return;
-          }
-          var idArr = data.list.slice(0,8);
-          idArr.forEach(function(id){
-            var tempUser = makeDemoUser(id);
-            var domRow = makeRow(tempUser);
-            $('resultsList').appendChild(domRow);
-            fetch(API+'/user/lookup/'+encodeURIComponent(id))
-              .then(r=>r.json())
-              .then(d=>{
-                if(d && d.ok && d.user){
-                  setAvatarBox(domRow.querySelector('.avatar'), d.user);
-                  domRow.querySelector('.result-name').textContent = d.user.nickname||d.user.uid;
-                  domRow.querySelector('.result-tag').textContent = '$' + String(d.user.uid||'').replace(/^\$/g,'');
-                }
-              })
-              .catch(e=>console.log('lookup失败：',e));
-          });
-        })
-        .catch(err=>{
-          clearResults();
-          console.error('获取历史失败：',err);
-          renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-        });
+      // 输入框清空的时候，直接调用加载历史
+      loadHistoryList();
       return;
     }
     $('resultsHead').textContent = 'RESULTS';
@@ -410,7 +416,7 @@
       pressNum(btn.getAttribute('data-key'));
     });
 
-    // ==========这里是修改好的Pay按钮事件【重点】先弹窗，再执行renderResults ==========
+    // Pay按钮：打开弹窗，直接调用加载历史！！
     $('payEntry').addEventListener('click', function () {
       var v = parseFloat(amountStr);
       if (!v || v <= 0) {
@@ -419,11 +425,11 @@
         return;
       }
       searchStr = '';
-      searchSeq++;
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
-      showSheet('searchSheet'); // 先打开弹窗DOM
-      renderResults(); // 弹窗打开后再拉取搜索历史
+      showSheet('searchSheet');
+      // 弹窗打开，直接调用加载历史函数
+      loadHistoryList();
     });
 
     $('closeSearch').addEventListener('click', function () { hideSheets(); });
@@ -433,7 +439,7 @@
       searchStr = '';
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
-      renderResults();
+      loadHistoryList();
     });
     $('noteInput').addEventListener('click', function () { openKb('note'); });
     $('sheetLayer').addEventListener('pointerdown', function (e) {
@@ -445,6 +451,7 @@
     $('noteBack').addEventListener('click', function () {
       closeKb();
       showSheet('searchSheet');
+      loadHistoryList();
     });
     $('continueBtn').addEventListener('click', function () {
       if (!noteStr.trim()) return;
