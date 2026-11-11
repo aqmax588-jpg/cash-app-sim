@@ -2,6 +2,14 @@
 Cash App Simulator 【修复：search-history不发起请求】
 特征：打开Pay弹窗，控制台一定打印【打开搜索页，开始加载历史】，并且Network出现 /user/search-history
 ========================================================= */
+function getHistoryCache(){
+  const str = localStorage.getItem('cash_history_'+uid);
+  if(str) return JSON.parse(str);
+  return null;
+}
+function setHistoryCache(arr){
+  localStorage.setItem('cash_history_'+uid, JSON.stringify(arr.slice(0,8)));
+}
 (function () {
   'use strict';
   var API = '/api';
@@ -239,6 +247,12 @@ Cash App Simulator 【修复：search-history不发起请求】
 async function loadHistoryList() {
   console.log('==== 打开搜索页，开始加载历史 ====');
   clearResults();
+  const cache = getHistoryCache();
+  if(cache && Array.isArray(cache)){
+    await renderHistory(cache);
+    return;
+  }
+
   try {
     const url = API + '/user/search-history/' + encodeURIComponent(uid);
     console.log('请求地址：', url);
@@ -247,32 +261,35 @@ async function loadHistoryList() {
     console.log('history后端返回：', dataHist);
     if (!dataHist || !dataHist.ok || !Array.isArray(dataHist.list) || dataHist.list.length === 0) {
       renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+      setHistoryCache([]);
       return;
     }
-    const idArr = dataHist.list.slice(0,8);
-    // 改成串行，不再一次性并发炸掉，兜底自动生效
-    const userList = [];
-    for(const id of idArr) {
-      try{
-        const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id));
-        const d = await r.json();
-        if(d && d.ok && d.user) {
-          userList.push(d.user);
-        }else{
-          userList.push(makeDemoUser(id));
-        }
-      }catch(e){
-        console.log('lookup单个用户失败',id,e);
-        userList.push(makeDemoUser(id));
-      }
-    }
-    // 渲染
-    userList.forEach(u=>{
-      $('#resultsList').appendChild(makeRow(u));
-    });
+    setHistoryCache(dataHist.list.slice(0,8));
+    await renderHistory(dataHist.list.slice(0,8));
   }catch(err){
     clearResults();
   }
+}
+
+async function renderHistory(idArr){
+  const userList = [];
+  for(const id of idArr) {
+    try{
+      const r = await fetch(API+'/user/lookup/'+encodeURIComponent(id));
+      const d = await r.json();
+      if(d && d.ok && d.user) {
+        userList.push(d.user);
+      }else{
+        userList.push(makeDemoUser(id));
+      }
+    }catch(e){
+      console.log('lookup单个用户失败',id,e);
+      userList.push(makeDemoUser(id));
+    }
+  }
+  userList.forEach(u=>{
+    $('#resultsList').appendChild(makeRow(u));
+  });
 }
       console.error('loadHistoryList 整体报错：',err);
       renderEmptyState('No recent contacts. Type a $Cashtag to search.');
@@ -331,15 +348,20 @@ async function loadHistoryList() {
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
     if (!clean) return;
-    fetch(API + '/user/save-search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid: uid, searchId: clean })
-    })
-    .then(res=>res.json())
-    .then(ret=>{console.log("save‑search resp",ret);})
-    .catch(err=>{console.error("save‑search err",err);});
-  }
+   fetch(API + '/user/save-search', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ uid: uid, searchId: clean })
+})
+.then(res=>res.json())
+.then(ret=>{
+  console.log("save-search resp",ret);
+  let cache = getHistoryCache() || [];
+  cache = cache.filter(x=>x!==clean);
+  cache.unshift(clean);
+  setHistoryCache(cache);
+})
+.catch(err=>{console.error("save-search err",err);});
 
   function pressNum(k) {
     if (k === 'del') {
