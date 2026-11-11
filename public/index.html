@@ -70,8 +70,8 @@ async function doLogin(){
       msgBox.innerText=data.msg;
       return;
     }
-    localStorage.setItem("loginUid",uid);
-    localStorage.setItem("clientId",clientId);
+   localStorage.setItem("uid",uid);
+localStorage.setItem("clientId",clientId);
     window.location.href="/cash.html";
   }catch(e){
     msgBox.className="msg err";
