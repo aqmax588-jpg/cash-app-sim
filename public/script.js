@@ -1,5 +1,5 @@
 /* =========================================================
-Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
+Cash App Simulator 原版修复：仅修复支付catch乱扣余额，原有功能全部保留
 ========================================================= */
 (function () {
   'use strict';
@@ -8,7 +8,6 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
   var uid = localStorage.getItem('uid') || '';
   var clientId = localStorage.getItem('clientId') || '';
 
-  // =========缓存函数移到闭包内部，uid已经存在=========
   function getHistoryCache(){
     const str = localStorage.getItem('cash_history_'+uid);
     if(str) return JSON.parse(str);
@@ -143,7 +142,7 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
   }
   function renderEmptyState(text) {
     var d = document.createElement('div');
-    d.className = 'no‑hint';
+    d.className = 'no-hint';
     d.textContent = text;
     $('resultsList').appendChild(d);
   }
@@ -159,7 +158,7 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
     SHEETS.forEach(function (id) { $(id).classList.remove('open'); });
   }
   function setKbHeight(h) {
-    document.documentElement.style.setProperty('--kb‑h', h + 'px');
+    document.documentElement.style.setProperty('--kb-h', h + 'px');
   }
   function buildKb() {
     var kb = $('softKb');
@@ -172,14 +171,14 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
     kb.innerHTML = '';
     rows.forEach(function (row) {
       var r = document.createElement('div');
-      r.className = 'kb‑row';
+      r.className = 'kb-row';
       row.forEach(function (k) {
         var b = document.createElement('button');
         b.type = 'button';
-        b.className = 'kb‑key';
-        if (k === 'ok') b.className += ' kb‑ok';
-        if (k === 'del') b.className += ' kb‑del';
-        if (k === 'space') b.className += ' kb‑space';
+        b.className = 'kb-key';
+        if (k === 'ok') b.className += ' kb-ok';
+        if (k === 'del') b.className += ' kb-del';
+        if (k === 'space') b.className += ' kb-space';
         b.textContent = k === 'del' ? '⌫' : (k === 'ok' ? '✓' : (k === 'space' ? 'space' : k));
         b.addEventListener('click', function (e) {
           e.preventDefault();
@@ -212,7 +211,7 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
       else searchStr += (k === 'space' ? ' ' : k);
       if (searchStr.length > 22) searchStr = searchStr.slice(0, 22);
       $('searchInput').value = searchStr;
-      $('searchBox').classList.toggle('has‑value', searchStr.length > 0);
+      $('searchBox').classList.toggle('has-value', searchStr.length > 0);
       scheduleSearch();
       return;
     }
@@ -249,7 +248,7 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
       return;
     }
     try {
-      const url = API + '/user/search‑history/' + encodeURIComponent(uid);
+      const url = API + '/user/search-history/' + encodeURIComponent(uid);
       console.log('请求地址：', url);
       const resHist = await fetch(url);
       const dataHist = await resHist.json();
@@ -339,20 +338,20 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
     if (!clean) return;
-    fetch(API + '/user/save‑search', {
+    fetch(API + '/user/save-search', {
       method: 'POST',
-      headers: { 'Content‑Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, searchId: clean })
     })
     .then(res=>res.json())
     .then(ret=>{
-      console.log("save‑search resp",ret);
+      console.log("save-search resp",ret);
       let cache = getHistoryCache() || [];
       cache = cache.filter(x=>x!==clean);
       cache.unshift(clean);
       setHistoryCache(cache);
     })
-    .catch(err=>{console.error("save‑search err",err);});
+    .catch(err=>{console.error("save-search err",err);});
   }
 
   function pressNum(k) {
@@ -389,9 +388,9 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
   function checkKick() {
-    fetch(API + '/user/check‑kick', {
+    fetch(API + '/user/check-kick', {
       method: 'POST',
-      headers: { 'Content‑Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
@@ -406,7 +405,7 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
     updateContinue();
     fetch(API + '/user/info', {
       method: 'POST',
-      headers: { 'Content‑Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
       .then(r => r.json())
@@ -440,7 +439,7 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
       }
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has‑value');
+      $('searchBox').classList.remove('has-value');
       showSheet('searchSheet');
       loadHistoryList();
     });
@@ -450,7 +449,7 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
       e.stopPropagation();
       searchStr = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has‑value');
+      $('searchBox').classList.remove('has-value');
       loadHistoryList();
     });
     $('noteInput').addEventListener('click', function () { openKb('note'); });
@@ -482,14 +481,17 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
       if (payBusy) return;
       var amt = parseFloat(amountStr);
       if (!amt || amt <= 0) { hideSheets(); return; }
-      if (Number(balance) < amt) { showAlert(); return; }
+      if (Number(balance) < amt) {
+        showAlert();
+        return;
+      }
       payBusy = true;
       showSheet('loadingSheet');
       var wait = 2000 + Math.random() * 1000;
       setTimeout(function () {
         fetch(API + '/user/pay', {
           method: 'POST',
-          headers: { 'Content‑Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             uid: uid,
             clientId: clientId,
@@ -519,10 +521,8 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
           })
           .catch(function () {
             payBusy = false;
-            balance = Math.max(0, Number(balance) - amt);
-            renderBalance();
             hideSheets();
-            showSuccess(amt);
+            alert('Network error, payment failed, balance unchanged.');
           });
       }, wait);
     });
@@ -551,7 +551,7 @@ Cash App Simulator 【修复：search‑history缓存，修复键盘失灵】
       searchStr = '';
       $('noteInput').value = '';
       $('searchInput').value = '';
-      $('searchBox').classList.remove('has‑value');
+      $('searchBox').classList.remove('has-value');
       updateContinue();
       renderAmount();
       renderBalance();
