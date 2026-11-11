@@ -454,8 +454,14 @@ app.post('/api/user/save-search', async (req, res) => {
 });
 
 app.get('/api/user/search-history/:uid', async (req, res) => {
-  const hist = await SearchHistory.findOne({uid}).lean();
-  res.json({ ok: true, list: hist ? hist.list : [] });
+  try {
+    const uid = req.params.uid;
+    const hist = await SearchHistory.findOne({ uid: uid }).lean();
+    res.json({ ok: true, list: hist ? hist.list : [] });
+  } catch (e) {
+    console.error(e);
+    res.json({ ok: false, list: [] });
+  }
 });
 
 /* ============ 自检接口（部署后先访问这个确认能通） ============ */
