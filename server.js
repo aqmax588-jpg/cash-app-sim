@@ -14,28 +14,28 @@ const ADMIN = {
   password: "admin123"
 };
 
-// 内存存储
+// 内存存储（Render 内存型，重启丢失，后续对接后端再换数据库）
 let users = [];
-let sessions = {}; // 在线会话，用于互踢
+let sessions = {};
 let transactionRecords = [];
+let searchHistory = {};
 
-// 管理员登录接口
+// 管理员登录
 app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body;
   if (username === ADMIN.username && password === ADMIN.password) {
-    return res.json({ ok: true, msg: "admin login success" });
+    return res.json({ ok: true, msg: "登录成功" });
   }
-  return res.json({ ok: false, msg: "wrong admin account or password" });
+  return res.json({ ok: false, msg: "账号或密码错误" });
 });
 
-// 用户登录接口 + 互踢逻辑
+// 用户登录 + 互踢
 app.post('/api/user/login', (req, res) => {
   const { uid, password, clientId } = req.body;
   const user = users.find(u => u.uid === uid && u.password === password);
   if (!user) {
-    return res.json({ ok: false, msg: "User not found or wrong password" });
+    return res.json({ ok: false, msg: "用户不存在或密码错误" });
   }
-  // 踢掉之前的会话
   if (sessions[uid]) {
     sessions[uid].kicked = true;
   }
@@ -47,7 +47,7 @@ app.post('/api/user/login', (req, res) => {
   });
 });
 
-// 检查是否被踢
+// 检测是否被踢下线
 app.post('/api/user/check-kick', (req, res) => {
   const { uid, clientId } = req.body;
   const s = sessions[uid];
@@ -57,11 +57,11 @@ app.post('/api/user/check-kick', (req, res) => {
   return res.json({ kicked: false });
 });
 
-// 管理员新增用户，余额随机 150w ~ 200w
+// 管理员新增用户，余额 150w ~ 200w 随机
 app.post('/api/admin/add-user', (req, res) => {
   const { uid, password, nickname, avatar } = req.body;
   if (users.find(u => u.uid === uid)) {
-    return res.json({ ok: false, msg: "This ID already exists" });
+    return res.json({ ok: false, msg: "该 ID 已存在" });
   }
   const balance = Math.floor(1500000 + Math.random() * 500000);
   const newUser = { uid, password, nickname, avatar, balance };
@@ -69,12 +69,12 @@ app.post('/api/admin/add-user', (req, res) => {
   return res.json({ ok: true, user: newUser });
 });
 
-// 获取全部用户列表
+// 获取全部用户
 app.get('/api/admin/users', (req, res) => {
   res.json(users);
 });
 
-// 管理员修改余额
+// 修改余额
 app.post('/api/admin/set-balance', (req, res) => {
   const { uid, newBalance } = req.body;
   const u = users.find(x => x.uid === uid);
@@ -83,19 +83,20 @@ app.post('/api/admin/set-balance', (req, res) => {
   return res.json({ ok: true, user: u });
 });
 
-// 充值交易接口，余额校验，不能负数
+// 交易提交，余额不足拦截，禁止负数
 app.post('/api/user/pay', (req, res) => {
   const { uid, amount, remark, targetId, targetNick, targetAvatar } = req.body;
   const user = users.find(u => u.uid === uid);
   if (!user) return res.json({ ok: false, msg: "User not found" });
-  if (user.balance < Number(amount)) {
+  const payAmount = Number(amount);
+  if (user.balance < payAmount) {
     return res.json({ ok: false, msg: "Insufficient balance, payment failed" });
   }
-  user.balance -= Number(amount);
+  user.balance -= payAmount;
   const record = {
     time: new Date().toLocaleString(),
     uid,
-    amount: Number(amount),
+    amount: payAmount,
     remark,
     targetId,
     targetNick,
@@ -105,15 +106,14 @@ app.post('/api/user/pay', (req, res) => {
   return res.json({ ok: true, user, record });
 });
 
-// 获取该用户的交易流水
+// 获取用户交易流水
 app.get('/api/user/records/:uid', (req, res) => {
   const uid = req.params.uid;
   const list = transactionRecords.filter(r => r.uid === uid);
   res.json(list);
 });
 
-// 历史搜索记录（用户搜索过的ID）
-let searchHistory = {};
+// 保存搜索历史
 app.post('/api/user/save-search', (req, res) => {
   const { uid, searchId } = req.body;
   if (!searchHistory[uid]) searchHistory[uid] = [];
@@ -127,6 +127,7 @@ app.get('/api/user/search-history/:uid', (req, res) => {
   res.json(searchHistory[uid] || []);
 });
 
+// 路由
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/index.html'));
 });
