@@ -106,7 +106,7 @@ async function autoCheckLogin(){
     //先检查是否被踢下线
     const kickRes = await fetch(API+"/user/check‑kick",{
       method:"POST",
-      headers:{"Content‑Type":"application/json"},
+      headers:{"Content-Type":"application/json"},
       body:JSON.stringify({uid,clientId})
     });
     const kickData = await kickRes.json();
@@ -118,7 +118,7 @@ async function autoCheckLogin(){
     //拉取用户信息，同时校验账号过期
     const infoRes = await fetch(API+"/user/info",{
       method:"POST",
-      headers:{"Content‑Type":"application/json"},
+      headers:{"Content-Type":"application/json"},
       body:JSON.stringify({uid,clientId})
     });
     const infoData = await infoRes.json();
