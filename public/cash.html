@@ -7,6 +7,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Cash App</title>
 <link rel="stylesheet" href="style.css">
+    <style>
+    input::-webkit-contacts-auto-fill-button {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+  </style>
 </head>
 <body>
 
@@ -87,7 +93,7 @@
 
     <div class="search-box" id="searchBox">
       <span class="search-ico">⌕</span>
-      <input class="search-field" id="searchInput" type="text" placeholder="$Cashtag" readonly autocomplete="off">
+      <input class="search-field" id="searchInput" type="text" placeholder="$Cashtag" autocomplete="off" autocorrect="off" autocapitalize="none">
       <button class="search-clear" type="button" id="searchClear">✕</button>
     </div>
 
@@ -105,7 +111,7 @@
       <div class="avatar" id="noteAvatar">R</div>
       <div class="target-name" id="noteName">rose</div>
     </div>
-    <input class="note-field" id="noteInput" type="text" placeholder="Add a note" readonly autocomplete="off">
+    <input class="note-field" id="noteInput" type="text" placeholder="Add a note" autocomplete="off" autocorrect="off" autocapitalize="none">
     <button class="continue-btn" type="button" id="continueBtn" disabled>Continue</button>
   </div>
 
