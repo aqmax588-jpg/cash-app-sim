@@ -1,412 +1,756 @@
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
+/* =========================================================
+   Cash App Simulator - script.js
+   提速 + 防风控版：
+   1. 真实资料本地缓存 12h，命中秒出；兜底绝不写缓存霸占
+   2. lookup 接口 1200ms 超时，超时先上兜底，真实回来原地更新
+   3. 历史列表本地先渲染，后台并发静默刷新真实资料，不闪不重建
+   4. 搜索防抖 150ms，触发更快；兜底昵称随机
+   5. 支付网络异常不乱扣余额
+   ========================================================= */
+(function () {
+  'use strict';
 
-const app = express();
-const PORT = process.env.PORT || 10000;
+  var API = '/api';
+  var $ = function (id) { return document.getElementById(id); };
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+  var uid = localStorage.getItem('uid') || '';
+  var clientId = localStorage.getItem('clientId') || '';
+  if (!uid || !clientId) {
+    location.replace('/');
+    return;
+  }
 
-/* ============================================================
-   ★★★ 头像 / 昵称 / ID 数据源 ★★★
-   以后换地址，有两个地方可以改，优先级：环境变量 > 下面这行默认值
-   1) Render 后台 → Environment → 新增变量 AVATAR_API_BASE（推荐，改完自动重启，不用动代码）
-   2) 或者直接改下面这行默认值，再推 GitHub
-   ============================================================ */
-const AVATAR_API_BASE = (process.env.AVATAR_API_BASE || 'https://offset-nominations-reductions-length.trycloudflare.com').replace(/\/+$/, '');
+  /* ============ 本地缓存 ============ */
+  // 历史 ID 列表（只存顺序，不存头像昵称）
+  function getHistoryCache() {
+    try {
+      var str = localStorage.getItem('cash_history_' + uid);
+      return str ? JSON.parse(str) : [];
+    } catch (e) { return []; }
+  }
+  function setHistoryCache(arr) {
+    try {
+      localStorage.setItem('cash_history_' + uid, JSON.stringify((arr || []).slice(0, 8)));
+} catch (e) {}
+  }
 
-/* 单次请求超时（毫秒）。压到 3.5 秒，快速失败，别让前端一直干等 */
-const AVATAR_API_TIMEOUT = Number(process.env.AVATAR_API_TIMEOUT || 3500);
+  // 真实资料缓存：只存 lookup 成功返回的真实用户，12 小时有效期；兜底不进这里
+  function getUserProfileCache(tag) {
+    try {
+      var raw = localStorage.getItem('cash_profile_' + tag);
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      if (Date.now() - obj.time > 12 * 3600 * 1000) return null;
+      return obj.data;
+    } catch (e) { return null; }
+  }
+  function setRealUserProfileCache(tag, data) {
+    try {
+      localStorage.setItem('cash_profile_' + tag, JSON.stringify({ data: data, time: Date.now() }));
+    } catch (e) {}
+  }
 
-/* 成功结果在内存里缓存 12 小时，第二次起直接秒回，不再打上游 */
-const PROFILE_CACHE_TTL = 12 * 60 * 60 * 1000;
-/* 查无此人 / 上游失败的结果短缓存 2 分钟，避免同一个不存在 ID 反复打上游 */
-const FAIL_CACHE_TTL = 2 * 60 * 1000;
-const profileCache = new Map();   // tag -> { data, time, fail }
-/* ============ 管理员固定账号 ============ */
-const ADMIN = { username: 'admin', password: 'admin123' };
+  // 兜底昵称名字库，随机抽取，兜底出来名字不重复
+  var demoNamePool = [
+    'Alex Turner', 'Ben Carter', 'Chris Moore', 'Dylan Hill',
+    'Ethan Scott', 'Felix Ward', 'Gavin Cole', 'Henry Ford',
+    'Iris Bryant', 'Jesse Fisher', 'Kai Hudson', 'Liam Norton',
+    'Miles Gibson', 'Noah Powell', 'Owen Harper', 'Peyton Brooks',
+    'Quinn Ellis', 'Riley Brooks', 'Sam Cooper', 'Tyler Reed'
+  ];
 
-/* ============ 内存数据 ============ */
-let users = [];            // { uid, password, nickname, avatar, balance }
-let sessions = {};         // uid -> { clientId, kicked }
-let records = [];          // 交易流水
-let searchHistory = {};    // uid -> [ 搜索过的ID ]
+  /* ---------------- 运行状态 ---------------- */
+  var balance = 0;
+  var myNickname = uid;
+var amountStr = '0';
+  var targetUser = null;
+  var noteStr = '';
+  var searchStr = '';
+  var kbOpen = false;
+  var kbTarget = null;
+  var searchSeq = 0;
+  var searchTimer = null;
+  var payBusy = false;
+  var kickTimer = null;
 
-/* 余额随机 1500000 ~ 2000000 */
-function randomBalance() {
-  return Math.floor(1500000 + Math.random() * 500000);
+  var KBH = 248;
+  var LOOKUP_TIMEOUT = 1200; // 真实接口超时 1200ms，超时先上兜底
+  var SHEETS = ['searchSheet', 'noteSheet', 'confirmSheet', 'loadingSheet'];
+
+  /* ---------------- 工具 ---------------- */
+  function money(v) {
+    var p = String(v == null ? '0' : v).split('.');
+    p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return p.join('.');
+  }
+
+  function money2(n) {
+    var num = Number(n);
+    if (isNaN(num)) num = 0;
+    return money(num.toFixed(2));
+  }
+
+  function colorOf(key) {
+    var s = String(key || 'x');
+    var h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+    return 'hsl(' + h + ',48%,58%)';
+  }
+
+  function initial(name) {
+    var t = String(name || '?').replace(/^\$/g, '').trim();
+    return (t.charAt(0) || '?').toUpperCase();
 }
 
-function now() {
-  return new Date().toLocaleString('zh-CN', { hour12: false });
-}
+  /* 带超时的 lookup 请求（兼容老 WebView，手动 AbortController） */
+  function fetchLookup(tag) {
+    return new Promise(function (resolve, reject) {
+      var ctrl = ('AbortController' in window) ? new AbortController() : null;
+      var timer = setTimeout(function () {
+        if (ctrl) ctrl.abort();
+        reject(new Error('timeout'));
+      }, LOOKUP_TIMEOUT);
 
-/* ============================================================
-   资料接口：GET {BASE}/api/profile?tag=xxx
-   返回 { ok, cashtag, display_name, avatar, avatar_proxy }
-   这里统一转成前端能直接用的结构：{ id, nickname, avatar, avatarFallback }
-   avatar 一定是完整 URL（走你电脑的图片中转，避免国内直连 S3 被 403）
-   ============================================================ */
-function toAbsolute(u) {
-  if (!u) return '';
-  if (/^https?:\/\//i.test(u)) return u;
-  if (u.indexOf('//') === 0) return 'https:' + u;
-return AVATAR_API_BASE + '/' + u.replace(/^\/+/, '');
-}
-
-async function fetchProfileOnce(tag) {
-  const url = AVATAR_API_BASE + '/api/profile?tag=' + encodeURIComponent(tag);
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), AVATAR_API_TIMEOUT);
-  try {
-    const resp = await fetch(url, {
-      signal: ctrl.signal,
-      headers: { 'accept': 'application/json' }
+      fetch(API + '/user/lookup/' + encodeURIComponent(tag), ctrl ? { signal: ctrl.signal } : {})
+        .then(function (r) { return r.json(); })
+        .then(function (data) { clearTimeout(timer); resolve(data); })
+        .catch(function (e) { clearTimeout(timer); reject(e); });
     });
-    const text = await resp.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch (e) { json = null; }
+  }
 
-    if (!resp.ok || !json || json.ok === false) {
-      console.log('[avatar] 接口返回异常', resp.status, String(text).slice(0, 120));
-      return null;
+  /* ---------------- 渲染基础信息 ---------------- */
+  function renderAmount() {
+    $('amountText').textContent = '$' + money(amountStr);
+    $('searchTitle').textContent = 'Pay $' + money(amountStr);
+    $('searchPayTo').textContent = 'Pay ' + money(amountStr) + ' to';
+    $('notePayTo').textContent = 'Pay ' + money(amountStr) + ' to';
+    $('confirmPayTo').textContent = 'Pay ' + money(amountStr) + ' to';
+}
+
+  function renderBalance() {
+    $('balanceText').textContent = '$' + money2(balance);
+    $('tabBalance').textContent = '$' + money2(balance);
+  }
+
+  function renderMe() {
+    var av = $('topAvatar');
+    av.textContent = initial(myNickname);
+    av.style.background = colorOf(uid);
+  }
+
+  /* ---------------- 头像组件 ---------------- */
+  function buildAvatar(user, small) {
+    var br = document.createElement('div');
+    br.className = 'avatar' + (small ? ' avatar-sm' : '');
+    br.style.background = colorOf(user.uid || user.nickname);
+    br.textContent = initial(user.nickname || user.uid);
+
+    if (user.avatar) {
+      var img = document.createElement('img');
+      img.className = 'avatar-img';
+      img.src = user.avatar;
+      img.alt = '';
+      img.onerror = function () {
+        if (user.avatarFallback && img.src !== user.avatarFallback) {
+          img.src = user.avatarFallback;
+          return;
+        }
+        if (img.parentNode) img.parentNode.removeChild(img);
+      };
+      br.appendChild(img);
+}
+    return br;
+  }
+
+  function setAvatarBox(el, user) {
+    el.style.background = colorOf(user.uid || user.nickname);
+    el.textContent = initial(user.nickname || user.uid);
+    var old = el.querySelector('img');
+    if (old) el.removeChild(old);
+    if (user.avatar) {
+      var img = document.createElement('img');
+      img.className = 'avatar-img';
+      img.src = user.avatar;
+      img.onerror = function () {
+        if (user.avatarFallback && img.src !== user.avatarFallback) {
+          img.src = user.avatarFallback;
+          return;
+        }
+        if (img.parentNode) img.parentNode.removeChild(img);
+      };
+      el.appendChild(img);
+    }
+  }
+
+  /* ---------------- 弹窗控制 ---------------- */
+  function showSheet(name) {
+    $('sheetLayer').classList.add('open');
+    SHEETS.forEach(function (id) {
+      $(id).classList.toggle('open', id === name);
+    });
+  }
+
+  function hideSheets() {
+    closeKb();
+    $('sheetLayer').classList.remove('open');
+    SHEETS.forEach(function (id) { $(id).classList.remove('open'); });
+}
+
+  /* ---------------- 自定义键盘 ---------------- */
+  function setKbHeight(h) {
+    document.documentElement.style.setProperty('--kb-h', h + 'px');
+  }
+
+  function buildKb() {
+    var kb = $('softKb');
+    var rows = [
+      ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+      ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
+      ['z', 'x', 'c', 'v', 'b', 'n', 'm'],
+      ['del', 'space', 'ok']
+    ];
+    kb.innerHTML = '';
+    rows.forEach(function (row) {
+      var r = document.createElement('div');
+      r.className = 'kb-row';
+      row.forEach(function (k) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'kb-key';
+        if (k === 'ok') b.className += ' kb-ok';
+        if (k === 'del') b.className += ' kb-del';
+        if (k === 'space') b.className += ' kb-space';
+        b.textContent = k === 'del' ? '⌫' : (k === 'ok' ? '✓' : (k === 'space' ? 'space' : k));
+        b.addEventListener('click', function (e) {
+          e.preventDefault();
+e.stopPropagation();
+          onKbKey(k);
+        });
+        r.appendChild(b);
+      });
+      kb.appendChild(r);
+    });
+  }
+
+  function openKb(kind) {
+    kbTarget = kind;
+    kbOpen = true;
+    setKbHeight(KBH);
+    $('softKb').classList.add('open');
+    $('searchSheet').classList.toggle('compact', kind === 'search');
+  }
+
+  function closeKb() {
+    kbOpen = false;
+    kbTarget = null;
+    setKbHeight(0);
+    $('softKb').classList.remove('open');
+    $('searchSheet').classList.remove('compact');
+  }
+
+  function onKbKey(k) {
+    if (k === 'ok') { closeKb(); return; }
+
+    if (kbTarget === 'search') {
+      if (k === 'del') searchStr = searchStr.slice(0, -1);
+      else searchStr += (k === 'space' ? ' ' : k);
+      if (searchStr.length > 22) searchStr = searchStr.slice(0, 22);
+      $('searchInput').value = searchStr;
+      $('searchBox').classList.toggle('has-value', searchStr.length > 0);
+      scheduleSearch();
+      return;
     }
 
-    const avatarProxy = json.avatar_proxy ? toAbsolute(json.avatar_proxy) : '';
-    const avatarOrigin = json.avatar ? toAbsolute(json.avatar) : '';
-    const avatar = avatarProxy || avatarOrigin;
-    if (!avatar) return null;
+    if (kbTarget === 'note') {
+      if (k === 'del') noteStr = noteStr.slice(0, -1);
+else {
+        if (noteStr.length >= 24) return;
+        noteStr += (k === 'space' ? ' ' : k);
+      }
+      $('noteInput').value = noteStr;
+      updateContinue();
+    }
+  }
 
+  function updateContinue() {
+    var b = $('continueBtn');
+    var on = noteStr.trim().length > 0;
+    b.disabled = !on;
+    b.classList.toggle('active', on);
+  }
+
+  /* ---------------- 搜索结果行 ---------------- */
+  function makeRow(user, cashtag) {
+    var row = document.createElement('div');
+    row.className = 'result-row';
+    row.dataset.tag = cashtag || user.uid;
+
+    row.appendChild(buildAvatar(user));
+
+    var info = document.createElement('div');
+    info.className = 'result-info';
+
+    var n = document.createElement('div');
+    n.className = 'result-name';
+    n.textContent = user.nickname || user.uid;
+    var t = document.createElement('div');
+    t.className = 'result-tag';
+    t.textContent = '$' + String(user.uid || '').replace(/^\$/g, '');
+
+    info.appendChild(n);
+    info.appendChild(t);
+    row.appendChild(info);
+row.addEventListener('click', function () { pickUser(user); });
+    return row;
+  }
+
+  // 原地更新一行（不清空重建，避免列表闪烁）
+  function updateRowDom(rowEl, user) {
+    var oldAvatar = rowEl.querySelector('.avatar');
+    if (oldAvatar) oldAvatar.parentNode.replaceChild(buildAvatar(user), oldAvatar);
+    var nameEl = rowEl.querySelector('.result-name');
+    if (nameEl) nameEl.textContent = user.nickname || user.uid;
+    var tagEl = rowEl.querySelector('.result-tag');
+    if (tagEl) tagEl.textContent = '$' + String(user.uid || '').replace(/^\$/g, '');
+    rowEl.onclick = null;
+    rowEl.addEventListener('click', function () { pickUser(user); });
+  }
+
+  /* 兜底用户：随机昵称，仅临时渲染，绝不写入本地缓存 */
+  function makeDemoUser(raw) {
+    var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
+    if (!name) name = 'user';
+    var randNick = demoNamePool[Math.floor(Math.random() * demoNamePool.length)];
     return {
-      id: String(json.cashtag || tag).replace(/^\$/, ''),
-      nickname: String(json.display_name || '').trim(),
-avatar: avatar,
-      avatarFallback: avatarOrigin
-    };
-  } catch (e) {
-    console.log('[avatar] 请求失败', e && e.name === 'AbortError' ? '超时' : (e && e.message));
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/* 带缓存 + 一次快速重试。缓存命中直接秒回，不打上游 */
-async function fetchAvatarProfile(rawId) {
-  const tag = String(rawId || '').replace(/^\$+/g, '').trim();
-  if (!tag) return null;
-
-  const key = tag.toLowerCase();
-  const hit = profileCache.get(key);
-  if (hit) {
-    const ttl = hit.fail ? FAIL_CACHE_TTL : PROFILE_CACHE_TTL;
-    if (Date.now() - hit.time < ttl) {
-      return hit.fail ? null : hit.data;
-    }
-  }
-
-  let data = await fetchProfileOnce(tag);
-  if (!data) {
-    // 快速重试一次，间隔压到 150ms，不再干等 800ms
-    await new Promise(function (r) { setTimeout(r, 150); });
-    data = await fetchProfileOnce(tag);
-  }
-
-  if (data) {
-    profileCache.set(key, { data: data, time: Date.now(), fail: false });
-  } else {
-    // 失败也短缓存，防止重复请求同一个不存在 ID
-    profileCache.set(key, { data: null, time: Date.now(), fail: true });
-}
-  return data;
-}
-
-/* ============ 管理员接口 ============ */
-app.post('/api/admin/login', (req, res) => {
-  const { username, password } = req.body;
-  if (username === ADMIN.username && password === ADMIN.password) {
-    return res.json({ ok: true, msg: '登录成功' });
-  }
-  return res.json({ ok: false, msg: '管理员账号或密码错误' });
-});
-
-app.post('/api/admin/add-user', (req, res) => {
-  const { uid, password, nickname, avatar } = req.body;
-  if (!uid || !password) {
-    return res.json({ ok: false, msg: '用户ID和密码不能为空' });
-  }
-  if (users.find(u => u.uid === uid)) {
-    return res.json({ ok: false, msg: '该用户ID已存在' });
-  }
-  const user = {
-    uid: String(uid).trim(),
-    password: String(password).trim(),
-    nickname: (nickname || uid).trim(),
-    avatar: (avatar || '').trim(),
-    balance: randomBalance()
-  };
-  users.push(user);
-  return res.json({ ok: true, msg: '添加成功，初始余额 $' + user.balance.toLocaleString(), user });
-});
-
-app.get('/api/admin/users', (req, res) => {
-  res.json({ ok: true, list: users });
-});
-
-app.post('/api/admin/set-balance', (req, res) => {
-  const { uid, newBalance } = req.body;
-  const u = users.find(x => x.uid === uid);
-  if (!u) return res.json({ ok: false, msg: '用户不存在' });
-  u.balance = Number(newBalance) || 0;
-  return res.json({ ok: true, msg: '余额已更新', user: u });
-});
-
-/* 设置用户头像：传 cashtag（不带 $），走后端接口取真实头像 + 昵称 */
-app.post('/api/admin/set-avatar', async (req, res) => {
-  const { uid, cashtag } = req.body;
-  const u = users.find(x => x.uid === uid);
-  if (!u) return res.json({ ok: false, msg: '用户不存在' });
-
-  const tag = String(cashtag || '').replace(/^\$/, '').trim();
-  if (!tag) return res.json({ ok: false, msg: 'cashtag 不能为空' });
-
-  const profile = await fetchAvatarProfile(tag);
-  if (!profile) {
-    return res.json({ ok: false, msg: '没取到该 cashtag 的头像（接口不通或该账号无头像）' });
-  }
-
-  u.avatar = profile.avatar;
-  u.avatarFallback = profile.avatarFallback || '';
-  if (profile.nickname) u.nickname = profile.nickname;
-
-  return res.json({ ok: true, msg: '头像已更新', user: u });
-});
-
-/* 管理后台：全部交易流水 */
-app.get('/api/admin/logs', (req, res) => {
-  res.json({ ok: true, list: records.slice().reverse() });
-});
-
-/* 管理后台：踢下线 */
-app.post('/api/admin/kick', (req, res) => {
-  const { uid } = req.body;
-  if (sessions[uid]) sessions[uid].kicked = true;
-  return res.json({ ok: true, msg: '已踢下线' });
-});
-
-/* ============ 用户接口 ============ */
-app.post('/api/user/login', (req, res) => {
-  const { uid, password, clientId } = req.body;
-  const user = users.find(u => u.uid === String(uid).trim() && u.password === String(password).trim());
-  if (!user) {
-    return res.json({ ok: false, msg: '用户不存在或密码错误' });
-  }
-  // 顶掉上一个会话
-  if (sessions[user.uid]) sessions[user.uid].kicked = true;
-  sessions[user.uid] = { clientId, kicked: false };
-
-  return res.json({
-    ok: true,
-    user: {
-      uid: user.uid,
-      nickname: user.nickname,
-      avatar: user.avatar,
-      avatarFallback: user.avatarFallback || '',
-      balance: user.balance
-    }
-  });
-});
-
-app.post('/api/user/check-kick', (req, res) => {
-const { uid, clientId } = req.body;
-  const s = sessions[uid];
-  if (!s || s.kicked || s.clientId !== clientId) {
-    return res.json({ kicked: true });
-  }
-  return res.json({ kicked: false });
-});
-
-app.post('/api/user/info', (req, res) => {
-  const { uid, clientId } = req.body;
-  const user = users.find(u => u.uid === uid);
-  if (!user) return res.json({ ok: false, msg: '用户不存在' });
-  const s = sessions[uid];
-  if (!s || s.clientId !== clientId || s.kicked) {
-    return res.json({ ok: false, msg: 'kicked' });
-  }
-  return res.json({
-    ok: true,
-    user: {
-      uid: user.uid,
-      nickname: user.nickname,
-      avatar: user.avatar,
-      avatarFallback: user.avatarFallback || '',
-      balance: user.balance
-    }
-  });
-});
-
-/* 搜索收款人：本地用户优先，没有则查外部接口，最后兜底 */
-app.get('/api/user/lookup/:uid', async (req, res) => {
-  const raw = String(req.params.uid || '').trim();
-  const uid = raw.replace(/^\$+/g, '');
-  if (!uid) return res.json({ ok: false, msg: 'No user found' });
-
-  // 1. 本站注册用户（真实数据）
-const user = users.find(u => u.uid === uid);
-  if (user) {
-    return res.json({
-      ok: true,
-      source: 'local',
-      user: {
-        uid: user.uid,
-        nickname: user.nickname,
-        avatar: user.avatar,
-        avatarFallback: user.avatarFallback || '',
-        balance: user.balance
-      }
-    });
-  }
-
-  // 2. 外部接口（真实头像 / 昵称 / ID）
-  const profile = await fetchAvatarProfile(uid);
-  if (profile) {
-    return res.json({
-      ok: true,
-      source: 'api',
-      user: {
-        uid: profile.id || uid,
-        nickname: profile.nickname || uid,
-        avatar: profile.avatar,
-        avatarFallback: profile.avatarFallback || ''
-      }
-    });
-  }
-
-  // 3. 兜底（接口不通时不让流程中断，前端不会显示任何 DEMO 标记）
-  return res.json({
-    ok: true,
-    source: 'fallback',
-    user: {
-      uid: uid,
-      nickname: uid.charAt(0).toUpperCase() + uid.slice(1),
+      uid: name,
+      nickname: randNick,
       avatar: '',
       avatarFallback: ''
+    };
+}
+
+  function renderEmptyState(text) {
+    var d = document.createElement('div');
+    d.className = 'no-hint';
+    d.textContent = text;
+    $('resultsList').appendChild(d);
+  }
+
+  function scheduleSearch() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderResults, 150); // 防抖压到 150ms，触发更快
+  }
+
+  function clearResults() {
+    $('resultsList').innerHTML = '';
+  }
+
+  /* 把后端返回的 raw user 规整成前端对象，并写入真实资料缓存 */
+  function normalizeReal(tag, u) {
+    var real = {
+      uid: u.uid || tag,
+      nickname: u.nickname || tag,
+      avatar: u.avatar || '',
+      avatarFallback: u.avatarFallback || ''
+    };
+    setRealUserProfileCache(tag, real);
+    return real;
+  }
+
+  /* ---------------- 历史联系人 ---------------- */
+  // 打开历史：本地缓存立刻渲染；后台并发静默拉真实资料，原地更新对应行
+  function loadHistoryList() {
+    clearResults();
+    var localIds = getHistoryCache();
+
+    if (!localIds.length) {
+      renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+    } else {
+      localIds.forEach(function (tag) {
+var cached = getUserProfileCache(tag);
+        var showUser = cached ? cached : makeDemoUser(tag);
+        $('resultsList').appendChild(makeRow(showUser, tag));
+      });
     }
-  });
-});
 
-/* 支付 */
-app.post('/api/user/pay', (req, res) => {
-  const { uid, clientId, amount, remark, targetUid } = req.body;
-const user = users.find(u => u.uid === uid);
-  if (!user) return res.json({ ok: false, msg: 'User not found' });
+    // 后台：先拿后端最新 ID 顺序，再并发补 lookup 真实资料
+    (async function backgroundRefresh() {
+      var ids = localIds.slice();
+      try {
+        var resHis = await fetch(API + '/user/search-history/' + encodeURIComponent(uid));
+        var his = await resHis.json();
+        if (his && his.ok && Array.isArray(his.list)) {
+          ids = his.list.slice(0, 8);
+          setHistoryCache(ids);
+          // 后端顺序变了，按最新顺序重绘一次（仍走本地缓存/兜底，不阻塞）
+          clearResults();
+          ids.forEach(function (tag) {
+            var cached = getUserProfileCache(tag);
+            var showUser = cached ? cached : makeDemoUser(tag);
+            $('resultsList').appendChild(makeRow(showUser, tag));
+          });
+        }
+      } catch (e) { /* 后端历史接口失败，沿用本地 ID 顺序 */ }
 
-  const s = sessions[uid];
-  if (!s || s.clientId !== clientId || s.kicked) {
-    return res.json({ ok: false, msg: 'Session expired' });
+      // 并发请求所有缺失真实资料的 ID，拿到后原地更新对应行
+      var tasks = ids.map(function (tag) {
+if (getUserProfileCache(tag)) return Promise.resolve();
+        return fetchLookup(tag)
+          .then(function (d) {
+            if (d && d.ok && d.user) {
+              var real = normalizeReal(tag, d.user);
+              var row = $('resultsList').querySelector('.result-row[data-tag="' + tag + '"]');
+              if (row) updateRowDom(row, real);
+            }
+          })
+          .catch(function () { /* 超时/失败保留兜底 */ });
+      });
+      await Promise.all(tasks);
+    })();
   }
 
-  const payAmount = Number(amount);
-  if (!payAmount || payAmount <= 0) {
-    return res.json({ ok: false, msg: 'Invalid amount' });
+  /* ---------------- 搜索 ---------------- */
+  function renderResults() {
+    var q = searchStr.trim().replace(/^\$/g, '');
+    var seq = ++searchSeq;
+    clearResults();
+
+    // 空输入：展示历史
+    if (!q) {
+      loadHistoryList();
+      return;
+    }
+
+    $('resultsHead').textContent = 'RESULTS';
+
+    // 命中本地真实缓存：直接秒出真实，不发请求
+    var cached = getUserProfileCache(q);
+    if (cached) {
+      $('resultsList').appendChild(makeRow(cached, q));
+      return;
+    }
+
+    // 无缓存：先上兜底占位，后台请求真实接口，1200ms 超时；真实回来原地更新
+$('resultsList').appendChild(makeRow(makeDemoUser(q), q));
+
+    fetchLookup(q)
+      .then(function (d) {
+        if (seq !== searchSeq) return;
+        if (d && d.ok && d.user) {
+          var real = normalizeReal(q, d.user);
+          var row = $('resultsList').querySelector('.result-row[data-tag="' + q + '"]');
+          if (row) updateRowDom(row, real);
+          else { clearResults(); $('resultsList').appendChild(makeRow(real, q)); }
+        }
+        // 返回无效：保留兜底
+      })
+      .catch(function () {
+        // 超时 / 网络失败：保留兜底，不动页面
+      });
   }
-  if (user.balance < payAmount) {
-    return res.json({ ok: false, msg: 'Insufficient balance', balance: user.balance });
+
+  function pickUser(user) {
+    targetUser = user;
+    noteStr = '';
+    $('noteInput').value = '';
+    $('noteName').textContent = user.nickname || user.uid;
+    $('confirmName').textContent = user.nickname || user.uid;
+    setAvatarBox($('noteAvatar'), user);
+    setAvatarBox($('confirmAvatar'), user);
+    updateContinue();
+    closeKb();
+    showSheet('noteSheet');
   }
 
-  const target = users.find(u => u.uid === targetUid);
-  user.balance = Number((user.balance - payAmount).toFixed(2));
+  function saveHistory(id) {
+    var clean = String(id || '').replace(/^\$/g, '').trim();
+if (!clean) return;
+    fetch(API + '/user/save-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: uid, searchId: clean })
+    })
+      .then(function (r) { return r.json(); })
+      .catch(function () {});
 
-  const record = {
-    recordId: 'TX' + Date.now() + Math.floor(Math.random() * 1000),
-    time: now(),
-    timestamp: Date.now(),
-    uid: user.uid,
-    nickname: user.nickname,
-    amount: payAmount,
-    remark: remark || '',
-    targetUid: targetUid,
-    targetNick: target ? target.nickname : targetUid,
-    targetAvatar: target ? target.avatar : '',
-    balanceAfter: user.balance
-};
-  records.push(record);
+    // 同步本地历史缓存：置顶去重
+    var cache = getHistoryCache();
+    cache = cache.filter(function (x) { return x !== clean; });
+    cache.unshift(clean);
+    setHistoryCache(cache);
+  }
 
-  return res.json({
-    ok: true,
-    balance: user.balance,
-    record
+  /* ---------------- 首页数字键盘 ---------------- */
+  function pressNum(k) {
+    if (k === 'del') {
+      amountStr = amountStr.length > 1 ? amountStr.slice(0, -1) : '0';
+    } else if (k === '.') {
+      if (amountStr.indexOf('.') === -1) amountStr += '.';
+    } else {
+      if (amountStr.indexOf('.') !== -1) {
+        var dec = amountStr.split('.')[1] || '';
+        if (dec.length >= 2) return;
+      }
+      if (amountStr === '0') amountStr = k;
+      else {
+        var digits = amountStr.replace('.', '');
+        if (digits.length >= 10) return;
+amountStr += k;
+      }
+    }
+    renderAmount();
+  }
+
+  /* ---------------- 顶部通知 ---------------- */
+  function showToast(amt, name) {
+    $('toastBody').textContent = 'You paid ' + name + ' $' + money2(amt);
+    $('toast').classList.add('show');
+    setTimeout(function () {
+      $('toast').classList.remove('show');
+    }, 2000);
+  }
+
+  /* ---------------- 成功页 ---------------- */
+  function showSuccess(amt) {
+    $('successText').textContent = 'You sent $' + money2(amt) + ' to ' + (targetUser ? (targetUser.nickname || targetUser.uid) : '');
+    $('successScreen').classList.add('open');
+    $('homeScreen').style.display = 'none';
+
+    setTimeout(function () {
+      showToast(amt, targetUser ? (targetUser.nickname || targetUser.uid) : '');
+    }, 20);
+  }
+
+  /* ---------------- 提示框 ---------------- */
+  function showAlert() { $('alertMask').classList.add('open'); }
+  function showKickMask() { $('kickMask').classList.add('open'); }
+
+  /* ---------------- 登录态校验 ---------------- */
+function checkKick() {
+    fetch(API + '/user/check-kick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: uid, clientId: clientId })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.kicked) {
+          if (kickTimer) clearInterval(kickTimer);
+          showKickMask();
+        }
+      })
+      .catch(function () {});
+  }
+
+  function boot() {
+    buildKb();
+    renderAmount();
+    renderBalance();
+    renderMe();
+    updateContinue();
+
+    fetch(API + '/user/info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: uid, clientId: clientId })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          if (d && /kicked|Session/i.test(d.msg || '')) { showKickMask(); }
+          else {
+            localStorage.removeItem('uid');
+            localStorage.removeItem('clientId');
+location.replace('/');
+          }
+          return;
+        }
+        balance = Number(d.user.balance) || 0;
+        myNickname = d.user.nickname || d.user.uid;
+        renderBalance();
+        renderMe();
+      })
+      .catch(function () {});
+
+    kickTimer = setInterval(checkKick, 9000);
+  }
+
+  /* ---------------- 事件绑定 ---------------- */
+  function bind() {
+    // 数字键盘
+    $('numkeypad').addEventListener('click', function (e) {
+      var btn = e.target.closest('.numkey');
+      if (!btn) return;
+      pressNum(btn.getAttribute('data-key'));
+    });
+
+    // 首页 Pay -> 搜索弹窗
+    $('payEntry').addEventListener('click', function () {
+      var v = parseFloat(amountStr);
+      if (!v || v <= 0) {
+        amountStr = '0';
+        renderAmount();
+        return;
+      }
+      searchStr = '';
+      searchSeq++;
+      $('searchInput').value = '';
+      $('searchBox').classList.remove('has-value');
+      showSheet('searchSheet');
+      loadHistoryList();
+    });
+
+    // 关闭搜索
+    $('closeSearch').addEventListener('click', function () { hideSheets(); });
+// 点搜索框 -> 弹键盘
+    $('searchInput').addEventListener('click', function () { openKb('search'); });
+
+    // 清除
+    $('searchClear').addEventListener('click', function (e) {
+      e.stopPropagation();
+      searchStr = '';
+      $('searchInput').value = '';
+      $('searchBox').classList.remove('has-value');
+      loadHistoryList();
+    });
+
+    // 点备注框 -> 弹键盘
+    $('noteInput').addEventListener('click', function () { openKb('note'); });
+
+    // 弹窗空白处 -> 收键盘
+    $('sheetLayer').addEventListener('pointerdown', function (e) {
+      if (!kbOpen) return;
+      if (e.target.closest('.soft-kb')) return;
+      if (e.target.id === 'searchInput' || e.target.id === 'noteInput') return;
+      closeKb();
+    });
+
+    // 备注页返回
+    $('noteBack').addEventListener('click', function () {
+      closeKb();
+      showSheet('searchSheet');
+      loadHistoryList();
+    });
+
+    // Continue
+    $('continueBtn').addEventListener('click', function () {
+      if (!noteStr.trim()) return;
+      closeKb();
+      saveHistory(targetUser.uid);
+$('confirmNote').textContent = noteStr;
+      renderBalance();
+      showSheet('confirmSheet');
+    });
+
+    // Style it（占位装饰）
+    $('styleBtn').addEventListener('click', function () {
+      if (noteStr.indexOf('✨') !== -1) return;
+      noteStr = noteStr + ' ✨';
+      $('confirmNote').textContent = noteStr;
+    });
+
+    // 支付
+    $('confirmPay').addEventListener('click', function () {
+      if (payBusy) return;
+
+      var amt = parseFloat(amountStr);
+      if (!amt || amt <= 0) { hideSheets(); return; }
+
+      if (Number(balance) < amt) {
+        showAlert();
+        return;
+      }
+
+      payBusy = true;
+      showSheet('loadingSheet');
+
+      var wait = 2000 + Math.random() * 1000;
+      setTimeout(function () {
+        fetch(API + '/user/pay', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid: uid,
+            clientId: clientId,
+            amount: amt,
+            remark: noteStr,
+            targetUid: targetUser ? targetUser.uid : ''
+})
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            payBusy = false;
+
+            if (!d || !d.ok) {
+              hideSheets();
+              if (d && /Insufficient/i.test(d.msg || '')) {
+                if (d.balance != null) balance = Number(d.balance);
+                renderBalance();
+                showAlert();
+              } else if (d && /kicked|Session/i.test(d.msg || '')) {
+                showKickMask();
+              }
+              return;
+            }
+
+            balance = Number(d.balance) || 0;
+            renderBalance();
+            hideSheets();
+            showSuccess(amt);
+          })
+          .catch(function () {
+            // 网络异常：不乱扣余额，提示失败
+            payBusy = false;
+            hideSheets();
+            alert('Network error, payment failed, balance unchanged.');
+          });
+      }, wait);
+    });
+
+    // 余额不足关闭
+    $('alertOk').addEventListener('click', function () {
+      $('alertMask').classList.remove('open');
+showSheet('confirmSheet');
+    });
+
+    // 被踢下线
+    $('kickOk').addEventListener('click', function () {
+      localStorage.removeItem('uid');
+      localStorage.removeItem('clientId');
+      location.replace('/');
+    });
+
+    // Receipt
+    $('receiptBtn').addEventListener('click', function () {
+      var name = targetUser ? (targetUser.nickname || targetUser.uid) : '';
+      alert('Receipt\n\nTo: ' + name + ' ($' + (targetUser ? targetUser.uid : '') + ')\n' +
+        'Amount: $' + money2(parseFloat(amountStr)) + '\n' +
+        'Note: ' + noteStr + '\n' +
+        'Status: Completed');
+    });
+
+    // Done -> 回到最初界面
+    $('doneBtn').addEventListener('click', function () {
+      $('successScreen').classList.remove('open');
+      $('homeScreen').style.display = 'flex';
+
+      amountStr = '0';
+      targetUser = null;
+      noteStr = '';
+      searchStr = '';
+
+      $('noteInput').value = '';
+      $('searchInput').value = '';
+      $('searchBox').classList.remove('has-value');
+      updateContinue();
+      renderAmount();
+      renderBalance();
+      hideSheets();
+    });
+  }
+
+  window.addEventListener('load', function () {
+    bind();
+    boot();
   });
-});
-
-/* 我的交易流水 */
-app.get('/api/user/records/:uid', (req, res) => {
-  const list = records
-    .filter(r => r.uid === req.params.uid)
-    .sort((a, b) => b.timestamp - a.timestamp);
-  res.json({ ok: true, list });
-});
-
-/* 搜索历史 */
-app.post('/api/user/save-search', (req, res) => {
-  const { uid, searchId } = req.body;
-  if (!uid || !searchId) return res.json({ ok: false });
-  if (!searchHistory[uid]) searchHistory[uid] = [];
-  searchHistory[uid] = searchHistory[uid].filter(x => x !== searchId);
-  searchHistory[uid].unshift(searchId);
-  if (searchHistory[uid].length > 8) searchHistory[uid].pop();
-  return res.json({ ok: true });
-});
-
-app.get('/api/user/search-history/:uid', (req, res) => {
-  res.json({ ok: true, list: searchHistory[req.params.uid] || [] });
-});
-
-/* ============ 自检接口（部署后先访问这个确认能通） ============ */
-app.get('/api/source-check', async (req, res) => {
-  const tag = String(req.query.tag || 'rose').replace(/^\$+/g, '');
-const start = Date.now();
-  const data = await fetchProfileOnce(tag);
-  res.json({
-    ok: !!data,
-    upstream: AVATAR_API_BASE,
-    timeout: AVATAR_API_TIMEOUT,
-    cost_ms: Date.now() - start,
-    sample_tag: tag,
-    result: data,
-    hint: data ? '数据源正常' : '数据源不通：检查你电脑的 server.py 和 cloudflared 是否在跑、地址是否过期'
-  });
-});
-
-/* ============ 页面路由 ============ */
-app.get('/healthz', (req, res) => res.type('text/plain').send('ok'));
-
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
-app.get('/cash', (req, res) => res.sendFile(path.join(__dirname, 'public/cash.html')));
-app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public/admin.html')));
-
-/* 兜底 */
-app.use((req, res) => res.status(404).send('Not Found'));
-
-/* ============ 启动（显式绑 0.0.0.0，并打印诊断信息） ============ */
-const HOST = '0.0.0.0';
-const server = app.listen(PORT, HOST, function () {
-  console.log('[boot] 1/2 listening on ' + HOST + ':' + PORT);
-  console.log('[boot] 2/2 avatar source = ' + AVATAR_API_BASE);
-});
-
-server.on('error', function (e) {
-  console.error('[boot] listen error: ' + (e && e.message));
-  process.exit(1);
-});
-
-process.on('uncaughtException', function (e) {
-  console.error('[fatal] uncaughtException: ' + (e && e.stack ? e.stack : e));
-});
-
-process.on('unhandledRejection', function (e) {
-  console.error('[fatal] unhandledRejection: ' + (e && e.stack ? e.stack : e));
-});
+})();
