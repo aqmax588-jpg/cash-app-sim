@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>Admin Panel</title>
+<title>管理后台</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui}
 body{background:#111;color:#fff;padding:20px}
 .container{max-width:900px;margin:0 auto}
 h2{margin-bottom:16px}
 .panel{background:#222;padding:16px;border-radius:12px;margin-bottom:16px}
-input{padding:10px;margin:6px;border-radius:6px;border:none;width:calc(100% - 14px)}
-button{padding:10px 16px;margin:6px;background:#25c2a0;color:#000;border:none;border-radius:6px;font-weight:bold}
+input{padding:10px;margin:6px;border-radius:6px;border:none;width:calc(100% - 14px);background:#333;color:#fff}
+button{padding:10px 16px;margin:6px;background:#00d54b;color:#000;border:none;border-radius:6px;font-weight:bold}
 table{width:100%;border-collapse:collapse;margin-top:12px}
 th,td{border:1px solid #444;padding:10px;text-align:left}
 th{background:#333}
@@ -19,30 +19,30 @@ th{background:#333}
 <body>
 <div class="container">
   <div id="loginWrap">
-    <h2>Admin Login</h2>
+    <h2>管理员登录</h2>
     <div class="panel">
-      <input id="adminUser" placeholder="Admin Username">
-      <input id="adminPwd" type="password" placeholder="Password">
-      <button onclick="adminLogin()">Login Admin</button>
+      <input id="adminUser" placeholder="管理员账号">
+      <input id="adminPwd" type="password" placeholder="密码">
+      <button onclick="adminLogin()">登录后台</button>
       <div id="adminMsg"></div>
     </div>
   </div>
   <div id="mainWrap" style="display:none">
-    <h2>Admin Dashboard</h2>
+    <h2>管理控制台</h2>
     <div class="panel">
-      <h3>Add New User</h3>
-      <input id="newUid" placeholder="User ID">
-      <input id="newPwd" placeholder="User Password">
-      <input id="newNick" placeholder="Nickname">
-      <input id="newAvatar" placeholder="Avatar URL">
-      <button onclick="addUser()">Add User</button>
+      <h3>新增用户账号</h3>
+      <input id="newUid" placeholder="用户 ID">
+      <input id="newPwd" placeholder="用户密码">
+      <input id="newNick" placeholder="昵称">
+      <input id="newAvatar" placeholder="头像链接">
+      <button onclick="addUser()">添加账号</button>
       <div id="addMsg"></div>
     </div>
     <div class="panel">
-      <h3>User List & Balance Edit</h3>
+      <h3>用户列表 & 修改余额</h3>
       <table id="userTable">
         <thead>
-          <tr><th>UID</th><th>Nick</th><th>Balance</th><th>Set Balance</th></tr>
+          <tr><th>用户ID</th><th>昵称</th><th>当前余额</th><th>设置余额</th></tr>
         </thead>
         <tbody id="userTbody"></tbody>
       </table>
@@ -64,7 +64,7 @@ async function adminLogin(){
     document.getElementById("mainWrap").style.display = "block";
     loadUserList();
   }else{
-    document.getElementById("adminMsg").innerText = "Wrong account";
+    document.getElementById("adminMsg").innerText = "账号或密码错误";
   }
 }
 async function addUser(){
@@ -93,7 +93,7 @@ async function loadUserList(){
       <td>${u.nickname}</td>
       <td>$${u.balance.toLocaleString()}</td>
       <td><input type="number" id="bal-${u.uid}" value="${u.balance}">
-      <button onclick="setBal('${u.uid}')">Save</button></td>
+      <button onclick="setBal('${u.uid}')">保存</button></td>
     `;
     tb.appendChild(tr);
   })
