@@ -1,6 +1,7 @@
 /* =========================================================
-   Cash App Simulator【修复自定义键盘字符丢失、搜索竞态bug】
-   关键点：不再用内存searchStr副本，直接读取input真实value；AbortController取消过期请求
+   Cash App Simulator - script.js (还原原始搜索逻辑，仅最小改动)
+   仅改动：pickUser末尾添加saveHistory，saveHistory增加打印日志
+   搜索、键盘全部使用原始代码，不做任何重构
    ========================================================= */
 (function () {
   'use strict';
@@ -12,21 +13,23 @@
     location.replace('/');
     return;
   }
-
+  /* ---------------- 运行状态 ---------------- */
   var balance = 0;
   var myNickname = uid;
   var amountStr = '0';
   var targetUser = null;
   var noteStr = '';
+  var searchStr = '';
   var kbOpen = false;
   var kbTarget = null;
+  var historyList = [];
+  var searchSeq = 0;
   var searchTimer = null;
   var payBusy = false;
   var kickTimer = null;
   var KBH = 248;
   var SHEETS = ['searchSheet', 'noteSheet', 'confirmSheet', 'loadingSheet'];
-  var abortController = null; // 用来取消上一次搜索请求
-
+  /* ---------------- 工具 ---------------- */
   function money(v) {
     var p = String(v == null ? '0' : v).split('.');
     p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -47,7 +50,7 @@
     var t = String(name || '?').replace(/^\$/g, '').trim();
     return (t.charAt(0) || '?').toUpperCase();
   }
-
+  /* ---------------- 渲染基础信息 ---------------- */
   function renderAmount() {
     $('amountText').textContent = '$' + money(amountStr);
     $('searchTitle').textContent = 'Pay $' + money(amountStr);
@@ -64,7 +67,7 @@
     av.textContent = initial(myNickname);
     av.style.background = colorOf(uid);
   }
-
+  /* ---------------- 头像组件 ---------------- */
   function buildAvatar(user, small) {
     var br = document.createElement('div');
     br.className = 'avatar' + (small ? ' avatar-sm' : '');
@@ -105,7 +108,7 @@
       el.appendChild(img);
     }
   }
-
+  /* ---------------- 弹窗控制 ---------------- */
   function showSheet(name) {
     $('sheetLayer').classList.add('open');
     SHEETS.forEach(function (id) {
@@ -117,7 +120,7 @@
     $('sheetLayer').classList.remove('open');
     SHEETS.forEach(function (id) { $(id).classList.remove('open'); });
   }
-
+  /* ---------------- 自定义键盘 ---------------- */
   function setKbHeight(h) {
     document.documentElement.style.setProperty('--kb-h', h + 'px');
   }
@@ -168,32 +171,21 @@
   function onKbKey(k) {
     if (k === 'ok') { closeKb(); return; }
     if (kbTarget === 'search') {
-      var inputDom = $('searchInput');
-      var val = inputDom.value;
-      if (k === 'del') {
-        val = val.slice(0, -1);
-      } else {
-        if(k === 'space') val += ' ';
-        else val += k;
-        if(val.length>22) val = val.slice(0,22);
-      }
-      inputDom.value = val;
-      $('searchBox').classList.toggle('has-value', val.length > 0);
+      if (k === 'del') searchStr = searchStr.slice(0, -1);
+      else searchStr += (k === 'space' ? ' ' : k);
+      if (searchStr.length > 22) searchStr = searchStr.slice(0, 22);
+      $('searchInput').value = searchStr;
+      $('searchBox').classList.toggle('has-value', searchStr.length > 0);
       scheduleSearch();
       return;
     }
     if (kbTarget === 'note') {
-      var noteDom = $('noteInput');
-      var val = noteDom.value;
-      if (k === 'del') {
-        val = val.slice(0, -1);
-      } else {
-        if(val.length >=24) return;
-        if(k === 'space') val += ' ';
-        else val += k;
+      if (k === 'del') noteStr = noteStr.slice(0, -1);
+      else {
+        if (noteStr.length >= 24) return;
+        noteStr += (k === 'space' ? ' ' : k);
       }
-      noteDom.value = val;
-      noteStr = val;
+      $('noteInput').value = noteStr;
       updateContinue();
     }
   }
@@ -203,7 +195,7 @@
     b.disabled = !on;
     b.classList.toggle('active', on);
   }
-
+  /* ---------------- 搜索 ---------------- */
   function scheduleSearch() {
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(renderResults, 260);
@@ -244,72 +236,52 @@
     d.textContent = text;
     $('resultsList').appendChild(d);
   }
-
   function renderResults() {
-    // 每次新搜索，取消上一个还在跑的网络请求
-    if(abortController) abortController.abort();
-    abortController = new AbortController();
-    var signal = abortController.signal;
-
-    // 直接读输入框真实DOM值，不再使用内存变量searchStr！！！
-    var qRaw = $('searchInput').value;
-    var q = qRaw.trim().replace(/^\$/g, '');
+    var q = searchStr.trim().replace(/^\$/g, '');
+    var seq = ++searchSeq;
     clearResults();
-
     if (!q) {
-      // 输入框为空，拉取搜索历史
-      fetch(API + '/user/search-history/' + encodeURIComponent(uid), {signal:signal})
-        .then(r=>r.json())
-        .then(data=>{
-          clearResults();
-          $('resultsHead').textContent = 'RESULTS';
-          if(!data || !data.ok || !Array.isArray(data.list) || data.list.length===0){
-            renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-            return;
-          }
-          var idList = data.list.slice(0,8);
-          idList.forEach(function(id){
-            fetch(API+'/user/lookup/'+encodeURIComponent(id), {signal:signal})
-              .then(r=>r.json())
-              .then(d=>{
-                var item = (d && d.ok && d.user) ? d.user : makeDemoUser(id);
-                $('resultsList').appendChild(makeRow(item));
-              })
-              .catch((e)=>{
-                if(e.name !== 'AbortError'){
-                  $('resultsList').appendChild(makeRow(makeDemoUser(id)));
-                }
-              })
-          })
-        })
-        .catch((e)=>{
-          if(e.name !== 'AbortError'){
-            clearResults();
-            renderEmptyState('No recent contacts. Type a $Cashtag to search.');
-          }
-        });
+      $('resultsHead').textContent = 'RESULTS';
+      if (!historyList.length) {
+        renderEmptyState('No recent contacts. Type a $Cashtag to search.');
+        return;
+      }
+      historyList.forEach(function (u) {
+        $('resultsList').appendChild(makeRow(u));
+      });
       return;
     }
-
     $('resultsHead').textContent = 'RESULTS';
-    fetch(API + '/user/lookup/' + encodeURIComponent(q), {signal:signal})
+    var pendingTimer = setTimeout(function () {
+      if (seq !== searchSeq) return;
+      if ($('resultsList').children.length) return;
+      $('resultsList').appendChild(makeRow(makeDemoUser(q)));
+    }, 120);
+    fetch(API + '/user/lookup/' + encodeURIComponent(q))
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        clearTimeout(pendingTimer);
+        if (seq !== searchSeq) return;
         clearResults();
         if (data && data.ok && data.user) {
-          $('resultsList').appendChild(makeRow(data.user));
-        } else {
-          $('resultsList').appendChild(makeRow(makeDemoUser(q)));
+          var real = {
+            uid: data.user.uid,
+            nickname: data.user.nickname,
+            avatar: data.user.avatar || '',
+            avatarFallback: data.user.avatarFallback || ''
+          };
+          $('resultsList').appendChild(makeRow(real));
+          return;
         }
+        $('resultsList').appendChild(makeRow(makeDemoUser(q)));
       })
-      .catch(function (e) {
-        if(e.name !== 'AbortError'){
-          clearResults();
-          $('resultsList').appendChild(makeRow(makeDemoUser(q)));
-        }
+      .catch(function () {
+        clearTimeout(pendingTimer);
+        if (seq !== searchSeq) return;
+        clearResults();
+        $('resultsList').appendChild(makeRow(makeDemoUser(q)));
       });
   }
-
   function pickUser(user) {
     targetUser = user;
     noteStr = '';
@@ -321,9 +293,40 @@
     updateContinue();
     closeKb();
     showSheet('noteSheet');
+    // ============仅新增这一行，其余全部原始代码============
     saveHistory(user.uid);
   }
-
+  /* ---------------- 历史联系人 ---------------- */
+  function loadHistory() {
+    fetch(API + '/user/search-history/' + encodeURIComponent(uid))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok || !Array.isArray(data.list)) return;
+        var ids = data.list.slice(0, 8);
+        var out = [];
+        var i = 0;
+        function step() {
+          if (i >= ids.length) {
+            historyList = out;
+            return;
+          }
+          var id = ids[i++];
+          fetch(API + '/user/lookup/' + encodeURIComponent(id))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (d && d.ok && d.user) {
+                out.push({ uid: d.user.uid, nickname: d.user.nickname, avatar: d.user.avatar || '', avatarFallback: d.user.avatarFallback || '' });
+              } else {
+                out.push(makeDemoUser(id));
+              }
+            })
+            .catch(function () { out.push(makeDemoUser(id)); })
+            .then(step);
+        }
+        step();
+      })
+      .catch(function () {});
+  }
   function saveHistory(id) {
     var clean = String(id || '').replace(/^\$/g, '').trim();
     if (!clean) return;
@@ -332,35 +335,66 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, searchId: clean })
     })
-    .then(function(res){ return res.json(); })
-    .then(function(ret){ console.log("保存搜索历史结果：", ret); })
-    .catch(function(err){ console.error("保存搜索历史失败：", err); });
+    .then(res=>res.json())
+    .then(ret=>{console.log("保存搜索历史结果：",ret);})
+    .catch(err=>{console.error("保存搜索历史失败",err);});
   }
-
+  /* ---------------- 首页数字键盘 ---------------- */
+  function pressNum(k) {
+    if (k === 'del') {
+      amountStr = amountStr.length > 1 ? amountStr.slice(0, -1) : '0';
+    } else if (k === '.') {
+      if (amountStr.indexOf('.') === -1) amountStr += '.';
+    } else {
+      if (amountStr.indexOf('.') !== -1) {
+        var dec = amountStr.split('.')[1] || '';
+        if (dec.length >= 2) return;
+      }
+      if (amountStr === '0') amountStr = k;
+      else {
+        var digits = amountStr.replace('.', '');
+        if (digits.length >= 10) return;
+        amountStr += k;
+      }
+    }
+    renderAmount();
+  }
+  /* ---------------- 顶部通知 ---------------- */
   function showToast(amt, name) {
     $('toastBody').textContent = 'You paid ' + name + ' $' + money2(amt);
     $('toast').classList.add('show');
-    setTimeout(function () { $('toast').classList.remove('show'); }, 2000);
+    setTimeout(function () {
+      $('toast').classList.remove('show');
+    }, 2000);
   }
+  /* ---------------- 成功页 ---------------- */
   function showSuccess(amt) {
     $('successText').textContent = 'You sent $' + money2(amt) + ' to ' + (targetUser ? (targetUser.nickname || targetUser.uid) : '');
     $('successScreen').classList.add('open');
     $('homeScreen').style.display = 'none';
-    setTimeout(function () { showToast(amt, targetUser ? (targetUser.nickname || targetUser.uid) : ''); }, 20);
+    setTimeout(function () {
+      showToast(amt, targetUser ? (targetUser.nickname || targetUser.uid) : '');
+    }, 20);
   }
+  /* ---------------- 提示框 ---------------- */
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
+  /* ---------------- 登录态校验 ---------------- */
   function checkKick() {
     fetch(API + '/user/check-kick', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
-      .then(r=>r.json())
-      .then(d=>{ if(d && d.kicked){ if(kickTimer)clearInterval(kickTimer); showKickMask();}})
-      .catch(()=>{});
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.kicked) {
+          if (kickTimer) clearInterval(kickTimer);
+          showKickMask();
+        }
+      })
+      .catch(function () {});
   }
-
   function boot() {
     buildKb();
     renderAmount();
@@ -372,22 +406,28 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
     })
-      .then(r=>r.json())
+      .then(function (r) { return r.json(); })
       .then(function (d) {
         if (!d || !d.ok) {
-          if (d && /kicked|Session/.test(d.msg || '')) { showKickMask(); }
-          else { localStorage.removeItem('uid'); localStorage.removeItem('clientId'); location.replace('/'); }
+          if (d && /kicked|Session/.test(d.msg || '')) {
+            showKickMask();
+          } else {
+            localStorage.removeItem('uid');
+            localStorage.removeItem('clientId');
+            location.replace('/');
+          }
           return;
         }
         balance = Number(d.user.balance) || 0;
         myNickname = d.user.nickname || d.user.uid;
         renderBalance();
         renderMe();
+        loadHistory();
       })
       .catch(function () {});
     kickTimer = setInterval(checkKick, 9000);
   }
-
+  /* ---------------- 事件绑定 ---------------- */
   function bind() {
     $('numkeypad').addEventListener('click', function (e) {
       var btn = e.target.closest('.numkey');
@@ -399,16 +439,21 @@
       if (!v || v <= 0) {
         amountStr = '0';
         renderAmount();
+        return;
       }
+      searchStr = '';
+      searchSeq++;
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
       renderResults();
+      if (historyList.length) renderResults();
       showSheet('searchSheet');
     });
     $('closeSearch').addEventListener('click', function () { hideSheets(); });
     $('searchInput').addEventListener('click', function () { openKb('search'); });
     $('searchClear').addEventListener('click', function (e) {
       e.stopPropagation();
+      searchStr = '';
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
       renderResults();
@@ -441,7 +486,10 @@
       if (payBusy) return;
       var amt = parseFloat(amountStr);
       if (!amt || amt <= 0) { hideSheets(); return; }
-      if (Number(balance) < amt) { showAlert(); return; }
+      if (Number(balance) < amt) {
+        showAlert();
+        return;
+      }
       payBusy = true;
       showSheet('loadingSheet');
       var wait = 2000 + Math.random() * 1000;
@@ -457,7 +505,7 @@
             targetUid: targetUser ? targetUser.uid : ''
           })
         })
-          .then(r=>r.json())
+          .then(function (r) { return r.json(); })
           .then(function (d) {
             payBusy = false;
             if (!d || !d.ok) {
@@ -507,6 +555,7 @@
       amountStr = '0';
       targetUser = null;
       noteStr = '';
+      searchStr = '';
       $('noteInput').value = '';
       $('searchInput').value = '';
       $('searchBox').classList.remove('has-value');
@@ -514,32 +563,11 @@
       renderAmount();
       renderBalance();
       hideSheets();
+      loadHistory();
     });
   }
-
   window.addEventListener('load', function () {
     bind();
     boot();
   });
-
-  function pressNum(k) {
-    if (k === 'del') {
-      amountStr = amountStr.length > 1 ? amountStr.slice(0, -1) : '0';
-    } else if (k === '.') {
-      if (amountStr.indexOf('.') === -1) amountStr += '.';
-    } else {
-      if (amountStr.indexOf('.') !== -1) {
-        var dec = amountStr.split('.')[1] || '';
-        if (dec.length >= 2) return;
-      }
-      if (amountStr === '0') amountStr = k;
-      else {
-        var digits = amountStr.replace('.', '');
-        if (digits.length >= 10) return;
-        amountStr += k;
-      }
-    }
-    renderAmount();
-  }
-
 })();
