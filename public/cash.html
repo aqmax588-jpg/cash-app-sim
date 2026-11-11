@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh‑CN">
+<html lang="zh-CN">
 <head>
-<meta charset="UTF‑8">
-<meta name="viewport" content="width=device‑width, initial‑scale=1.0, viewport‑fit=cover">
-<meta name="theme‑color" content="#00D54B">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#00D54B">
 <title>Cash App</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
@@ -21,7 +21,7 @@ html,body{background:#0d0d0d;color:#fff;min-height:100vh;}
 button{padding:11px 16px;border:none;border-radius:10px;background:#00d54b;color:#000;font-weight:700;font-size:14px;cursor:pointer;}
 button:active{background:#00b840;}
 button.gray{background:#2a2a2a;color:#ddd;}
-.user‑item{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #242424;}
+.user-item{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #242424;}
 .avatar{width:40px;height:40px;border-radius:50%;background:#00d54b;color:#000;font-weight:bold;display:flex;align-items:center;justify-content:center;overflow:hidden;}
 .avatar img{width:100%;height:100%;object-fit:cover;}
 .info{flex:1;}
@@ -31,8 +31,8 @@ button.gray{background:#2a2a2a;color:#ddd;}
 .msg.err{color:#ff6b6b;}
 .msg.ok{color:#00d54b;}
 .logout{color:#ff6b6b;font-size:13px;cursor:pointer;}
-.list‑wrap{max-height:280px;overflow:auto;}
-.record‑row{padding:10px 0;border-bottom:1px solid #242424;font-size:13px;}
+.list-wrap{max-height:280px;overflow:auto;}
+.record-row{padding:10px 0;border-bottom:1px solid #242424;font-size:13px;}
 </style>
 </head>
 <body>
@@ -80,7 +80,7 @@ button.gray{background:#2a2a2a;color:#ddd;}
 
     <div class="panel">
       <h2>交易流水</h2>
-      <div class="list‑wrap" id="recordWrap"></div>
+      <div class="list-wrap" id="recordWrap"></div>
     </div>
   </div>
 </div>
@@ -90,10 +90,9 @@ const API = "/api";
 let uid = null;
 let clientId = null;
 
-//页面打开自动尝试登录
 window.onload = async function(){
   uid = localStorage.getItem("loginUid");
-  clientId = localStorage.getItem("loginClientId");
+  clientId = localStorage.getItem("clientId");
   if(!uid||!clientId){
     goLogin();
     return;
@@ -103,8 +102,7 @@ window.onload = async function(){
 
 async function autoCheckLogin(){
   try{
-    //先检查是否被踢下线
-    const kickRes = await fetch(API+"/user/check‑kick",{
+    const kickRes = await fetch(API+"/user/check-kick",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({uid,clientId})
@@ -115,7 +113,7 @@ async function autoCheckLogin(){
       goLogin();
       return;
     }
-    //拉取用户信息，同时校验账号过期
+
     const infoRes = await fetch(API+"/user/info",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
@@ -138,16 +136,18 @@ async function autoCheckLogin(){
 }
 
 function renderUserInfo(u){
-  document.getElementById("balanceText").textContent = "$"+Number(u.balance).toLocaleString("en‑US");
+  document.getElementById("balanceText").textContent = "$"+Number(u.balance).toLocaleString("en-US");
 }
 
 function clearLocalAuth(){
   localStorage.removeItem("loginUid");
-  localStorage.removeItem("loginClientId");
+  localStorage.removeItem("clientId");
 }
+
 function goLogin(){
   window.location.href="/";
 }
+
 function doLogout(){
   clearLocalAuth();
   goLogin();
@@ -173,7 +173,7 @@ async function searchUser(){
       avatarHtml = `<div class="avatar">${(u.uid||'').charAt(0).toUpperCase()}</div>`;
     }
     resWrap.innerHTML = `
-      <div class="user‑item">
+      <div class="user-item">
         ${avatarHtml}
         <div class="info">
           <div class="name">${u.nickname||u.uid}</div>
@@ -181,7 +181,6 @@ async function searchUser(){
         </div>
       </div>
     `;
-    //回填到转账输入框
     document.getElementById("payTarget").value = u.uid;
   }catch(e){
     resWrap.innerHTML='<div class="msg err">搜索失败</div>';
@@ -203,7 +202,7 @@ async function sendPay(){
   try{
     const res = await fetch(API+"/user/pay",{
       method:"POST",
-      headers:{"Content‑Type":"application/json"},
+      headers:{"Content-Type":"application/json"},
       body:JSON.stringify({uid,clientId,amount,remark,targetUid})
     });
     const data = await res.json();
@@ -237,9 +236,9 @@ async function loadRecords(){
     let html="";
     list.forEach(r=>{
       html += `
-      <div class="record‑row">
+      <div class="record-row">
         <div>${r.time}</div>
-        <div>金额：$${Number(r.amount).toLocaleString("en‑US")}｜备注：${r.remark||"‑"}</div>
+        <div>金额：$${Number(r.amount).toLocaleString("en-US")}｜备注：${r.remark||"-"}</div>
       </div>
       `;
     });
