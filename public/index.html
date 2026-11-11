@@ -2,9 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimum-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#00D54F">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Cash App · Login</title>
 <style>
+html {
+  /* 手机顶部/底部安全区背景 = 绿色（想改黑色就把这行换成 #000） */
+  background: #00D54F;
+  -webkit-text-size-adjust: 100%;
+}
 * {
   box-sizing: border-box;
   margin: 0;
@@ -18,7 +25,8 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  padding: 24px;
+  padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+  touch-action: manipulation;
 }
 .box {
   width: 100%;

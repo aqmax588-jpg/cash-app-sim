@@ -11,6 +11,8 @@
 html {
   --kb-h: 0px;
   height: 100%;
+  /* 关键：给 html 设背景，手机顶部/底部安全区就不会露出白底 */
+  background: #00D54F;
 }
 
 body {
@@ -25,6 +27,8 @@ body {
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   -webkit-user-select: none;
+  /* 禁止双击放大 */
+  touch-action: manipulation;
 }
 
 button,
