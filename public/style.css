@@ -56,15 +56,13 @@ input {
 }
 
 .brand-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  background: #fff;
+  width: 26px;
+  height: 26px;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
-  overflow: hidden;
+  box-shadow: none;
 }
 
 .brand-logo svg {
