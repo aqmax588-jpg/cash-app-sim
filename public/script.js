@@ -26,7 +26,7 @@ Cash App Simulator｜修复搜索卡死、输入不查真实接口
     if(!raw) return null;
     let obj = null;
     try{ obj = JSON.parse(raw); }catch(e){ return null; }
-if(!obj || !obj.data) return null;
+    if(!obj || !obj.data) return null;
     if(obj.data.source === 'fallback') return null;
     if(Date.now() - obj.time > 12 * 3600 * 1000) return null;
     return obj.data;
@@ -51,7 +51,7 @@ if(!obj || !obj.data) return null;
 
   // 兜底昵称池：同一个 ID 稳定，不同 ID 有变化，看起来不像复制粘贴
   var DEMO_NAMES = ['Alex','Jordan','Taylor','Casey','Riley','Morgan','Jamie','Avery','Parker','Quinn','Skyler','Rowan','Emerson','Blake','Dakota','Reese','Sawyer','Elliot','Charlie','Hayden','Kendall','Marlow'];
-function demoNick(raw){
+  function demoNick(raw){
     var name = String(raw || '').replace(/^\$/g, '').replace(/\s+/g, '');
     if (!name) name = 'user';
     var h = 0;
@@ -79,6 +79,7 @@ function demoNick(raw){
 
   var balance = 0;
   var myNickname = uid;
+  var myAvatar = '';
   var amountStr = '0';
   var targetUser = null;
   var noteStr = '';
@@ -91,7 +92,8 @@ function demoNick(raw){
   var kickTimer = null;
   var KBH = 248;
   var SHEETS = ['searchSheet', 'noteSheet', 'confirmSheet', 'loadingSheet'];
-function money(v) {
+
+  function money(v) {
     var p = String(v == null ? '0' : v).split('.');
     p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     return p.join('.');
@@ -120,12 +122,17 @@ function money(v) {
   }
   function renderBalance() {
     $('balanceText').textContent = '$' + money2(balance);
-$('tabBalance').textContent = '$' + money2(balance);
+    $('tabBalance').textContent = '$' + money2(balance);
   }
   function renderMe() {
     var av = $('topAvatar');
-    av.textContent = initial(myNickname);
-    av.style.background = colorOf(uid);
+    if (myAvatar) {
+      av.textContent = '';
+      av.style.backgroundImage = 'url("' + myAvatar + '")';
+    } else {
+      av.textContent = initial(myNickname);
+      av.style.backgroundImage = '';
+    }
   }
   function buildAvatar(user, small) {
     var br = document.createElement('div');
@@ -150,7 +157,7 @@ $('tabBalance').textContent = '$' + money2(balance);
     var old = el.querySelector('img');
     if (old) el.removeChild(old);
     if (user.avatar) {
-var img = document.createElement('img');
+      var img = document.createElement('img');
       img.className = 'avatar-img';
       img.src = user.avatar;
       img.onerror = function () {
@@ -178,7 +185,7 @@ var img = document.createElement('img');
     row.appendChild(info);
     row.addEventListener('click', function () { pickUser(row.__user || user); });
     return row;
-}
+  }
   // 真实数据回来后，原地刷新这一行（不重建列表、不闪烁）
   function updateRowDom(row, user) {
     if (!row || !user) return;
@@ -207,7 +214,7 @@ var img = document.createElement('img');
     var d = document.createElement('div');
     d.className = 'no-hint';
     d.textContent = text;
-$('resultsList').appendChild(d);
+    $('resultsList').appendChild(d);
   }
   function showSheet(name) {
     $('sheetLayer').classList.add('open');
@@ -239,7 +246,7 @@ $('resultsList').appendChild(d);
         var b = document.createElement('button');
         b.type = 'button';
         b.className = 'kb-key';
-if (k === 'ok') b.className += ' kb-ok';
+        if (k === 'ok') b.className += ' kb-ok';
         if (k === 'del') b.className += ' kb-del';
         if (k === 'space') b.className += ' kb-space';
         b.textContent = k === 'del' ? '⌫' : (k === 'ok' ? '✓' : (k === 'space' ? 'space' : k));
@@ -273,7 +280,7 @@ if (k === 'ok') b.className += ' kb-ok';
 
   // ===== 输入框实时监控：光标一点/键盘一开就监控，值一变立刻请求真实数据 =====
   var searchWatchTimer = null;
-function syncSearchInput() {
+  function syncSearchInput() {
     var el = $('searchInput');
     if (!el) return;
     var v = String(el.value || '');
@@ -300,7 +307,7 @@ function syncSearchInput() {
       if (searchStr.length > 22) searchStr = searchStr.slice(0, 22);
       $('searchInput').value = searchStr;
       $('searchBox').classList.toggle('has-value', searchStr.length > 0);
-scheduleSearch();
+      scheduleSearch();
       return;
     }
     if (kbTarget === 'note') {
@@ -334,7 +341,7 @@ scheduleSearch();
     var timer = setTimeout(function () {
       if (ctrl) { try { ctrl.abort(); } catch (e) {} }
     }, 9000);
-var url = API + '/user/lookup/' + encodeURIComponent(clean);
+    var url = API + '/user/lookup/' + encodeURIComponent(clean);
     var opt = ctrl ? { signal: ctrl.signal } : {};
     return fetch(url, opt)
       .then(function (r) { return r.json(); })
@@ -360,7 +367,7 @@ var url = API + '/user/lookup/' + encodeURIComponent(clean);
   // 单条历史：没有真实缓存才去请求，拿到真实后原地替换那一行
   function refreshHistoryRow(tag) {
     var clean = String(tag || '').replace(/^\$/g, '').trim();
-if (!clean) return;
+    if (!clean) return;
     if (getUserProfileCache(clean)) return;
     fetchLookupRaw(clean).then(function (data) {
       if (!data || !data.ok || !data.user || data.source === 'fallback') return;
@@ -387,7 +394,7 @@ if (!clean) return;
         return;
       }
       if (attempt < 1) {
-setTimeout(function () {
+        setTimeout(function () {
           if (seq === searchSeq) requestRealLookup(clean, seq, attempt + 1);
         }, 2500);
       }
@@ -428,7 +435,7 @@ setTimeout(function () {
     $('resultsList').appendChild(makeRow(makeDemoUser(q)));
 
     // 只有 2 个字符以上才真发请求，避免打一个字就打一次上游（防风控）
-if (q.length < 2) return;
+    if (q.length < 2) return;
 
     requestRealLookup(q, seq, 0);
   }
@@ -456,7 +463,7 @@ if (q.length < 2) return;
           targetUser = data.user;
           $('noteName').textContent = data.user.nickname || data.user.uid;
           $('confirmName').textContent = data.user.nickname || data.user.uid;
-setAvatarBox($('noteAvatar'), data.user);
+          setAvatarBox($('noteAvatar'), data.user);
           setAvatarBox($('confirmAvatar'), data.user);
         }).catch(function () {});
       }
@@ -489,7 +496,7 @@ setAvatarBox($('noteAvatar'), data.user);
     } else {
       if (amountStr.indexOf('.') !== -1) {
         var dec = amountStr.split('.')[1] || '';
-if (dec.length >= 2) return;
+        if (dec.length >= 2) return;
       }
       if (amountStr === '0') amountStr = k;
       else {
@@ -515,7 +522,7 @@ if (dec.length >= 2) return;
   function showAlert() { $('alertMask').classList.add('open'); }
   function showKickMask() { $('kickMask').classList.add('open'); }
   function checkKick() {
-fetch(API + '/user/check-kick', {
+    fetch(API + '/user/check-kick', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid, clientId: clientId })
@@ -544,7 +551,8 @@ fetch(API + '/user/check-kick', {
         }
         balance = Number(d.user.balance) || 0;
         myNickname = d.user.nickname || d.user.uid;
-renderBalance();
+        myAvatar = d.user.avatar || '';
+        renderBalance();
         renderMe();
       })
       .catch(function () {});
@@ -577,7 +585,7 @@ renderBalance();
       pressNum(key);
     });
     $('payEntry').addEventListener('click', function () {
-var v = parseFloat(amountStr);
+      var v = parseFloat(amountStr);
       if (!v || v <= 0) {
         amountStr = '0';
         renderAmount();
@@ -608,7 +616,7 @@ var v = parseFloat(amountStr);
       showSheet('searchSheet');
       loadHistoryList();
     });
-$('continueBtn').addEventListener('click', function () {
+    $('continueBtn').addEventListener('click', function () {
       if (!noteStr.trim()) return;
       closeKb();
       saveHistory(targetUser.uid);
@@ -638,7 +646,7 @@ $('continueBtn').addEventListener('click', function () {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             uid: uid,
-clientId: clientId,
+            clientId: clientId,
             amount: amt,
             remark: noteStr,
             targetUid: targetUser ? targetUser.uid : ''
@@ -671,7 +679,7 @@ clientId: clientId,
       }, wait);
     });
     $('alertOk').addEventListener('click', function () {
-$('alertMask').classList.remove('open');
+      $('alertMask').classList.remove('open');
       showSheet('confirmSheet');
     });
     $('kickOk').addEventListener('click', function () {
