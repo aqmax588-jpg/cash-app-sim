@@ -16,7 +16,7 @@ const MONGODB_URI = process.env.MONGODB_URI;
 
 /* ============ 管理员账号【在这里修改账号密码】 ================== */
 /* 后期改管理员账号密码，直接修改下面这行对象，重新部署即可 */
-const ADMIN = { username: 'admin', password: 'admin123' };
+const ADMIN = { username: 'xui', password: 'myxui888999.' };
 
 /* ============================================================
    ★★★ 头像 / 昵称 / ID 数据源 ★★★
