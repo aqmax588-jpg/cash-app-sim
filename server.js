@@ -16,7 +16,7 @@ const MONGODB_URI = process.env.MONGODB_URI;
 
 /* ============ 管理员账号【在这里修改账号密码】 ================== */
 /* 后期改管理员账号密码，直接修改下面这行对象，重新部署即可 */
-const ADMIN = { username: 'xui', password: 'myxui888999.' };
+const ADMIN = { username: 'admin', password: 'admin123' };
 
 /* ============================================================
    ★★★ 头像 / 昵称 / ID 数据源 ★★★
@@ -51,7 +51,7 @@ const userSchema = new mongoose.Schema({
   },
   isActivated: { type: Boolean, default: false }, // 是否已经首次登录激活
   activateTime: { type: Date, default: null }, //首次登录激活时间
-expireTime: { type: Date, default: null } //到期时间
+  expireTime: { type: Date, default: null } //到期时间
 }, { timestamps: true }); //自动记录 createdAt（账号创建时间）
 //会话模型
 const sessionSchema = new mongoose.Schema({
@@ -152,7 +152,7 @@ async function fetchProfileOnce(tag) {
     const avatarProxy = json.avatar_proxy ? toAbsolute(json.avatar_proxy) : '';
     const avatarOrigin = json.avatar ? toAbsolute(json.avatar) : '';
     const avatar = avatarProxy || avatarOrigin;
-if (!avatar) return null;
+    if (!avatar) return null;
     return {
       id: String(json.cashtag || tag).replace(/^\$/, ''),
       nickname: String(json.display_name || '').trim(),
@@ -187,7 +187,7 @@ async function fetchAvatarProfile(rawId) {
       const dbHit = await ProfileCache.findOne({ key }).lean();
       if (dbHit) {
         const ttl = dbHit.fail ? FAIL_CACHE_TTL : PROFILE_CACHE_TTL;
-if (Date.now() - dbHit.time < ttl) {
+        if (Date.now() - dbHit.time < ttl) {
           profileCache.set(key, { data: dbHit.data, time: dbHit.time, fail: dbHit.fail });
           return dbHit.fail ? null : dbHit.data;
         }
@@ -218,7 +218,7 @@ if (Date.now() - dbHit.time < ttl) {
         { $set: { data: data, fail: !data, time: entry.time } },
         { upsert: true }
       ).catch(function (e) { console.log('[avatar] 写库缓存失败', e && e.message); });
-}
+    }
     return data;
   })();
 
@@ -253,7 +253,7 @@ app.post('/api/admin/add-user', async (req, res) => {
   const useCardType = validCardTypes.includes(cardType) ? cardType : 'day';
   const user = new User({
     uid: String(uid).trim(),
-password: String(password).trim(),
+    password: String(password).trim(),
     nickname: (nickname || uid).trim(),
     avatar: (avatar || '').trim(),
     balance: randomBalance(),
@@ -266,6 +266,13 @@ password: String(password).trim(),
   return res.json({ ok: true, msg: '添加成功，初始余额 $' + user.balance.toLocaleString(), user });
 });
 
+/* 有效账号判定：uid 必须存在且不是 undefined/null 空字符串
+   旧网站遗留的无 uid 数据无法登录，后台不再展示，也不会被误当成账号 */
+function isValidUid(v) {
+  const s = String(v == null ? '' : v).trim();
+  return s !== '' && s !== 'undefined' && s !== 'null';
+}
+
 app.get('/api/admin/users', async (req, res) => {
   res.setHeader('Cache-Control','no-cache, no-store, must-revalidate');
   res.setHeader('Pragma','no-cache');
@@ -275,17 +282,20 @@ app.get('/api/admin/users', async (req, res) => {
     console.log("==== 查询用户列表 ====")
     console.log("数量：", list.length)
     // 老账号没有 createdAt 字段，用 _id 自带的时间戳补上，列表里就能看到创建时间
-    const out = list.map(function (u) {
+    // 同时过滤掉 uid 无效的历史遗留脏数据（显示成 undefined 那种），不让它出现在本网站后台
+    const out = [];
+    list.forEach(function (u) {
       const o = u.toObject();
+      if (!isValidUid(o.uid)) return;
       if (!o.createdAt && u._id && typeof u._id.getTimestamp === 'function') {
         o.createdAt = u._id.getTimestamp();
       }
-      return o;
+      out.push(o);
     });
     res.json(out);
   } catch (err) {
     console.error("查询报错：", err);
-res.json([]);
+    res.json([]);
   }
 });
 
@@ -314,11 +324,29 @@ app.post('/api/admin/set-cardtype',async(req,res)=>{
   return res.json({ok:true,msg:"卡种已更新",user:u});
 });
 
+/* 管理后台：清理历史遗留的无效账号（uid 缺失/undefined 的死数据，本来也无法登录） */
+app.post('/api/admin/clean-invalid', async (req, res) => {
+  try {
+    const all = await User.find({}).exec();
+    const badIds = [];
+    all.forEach(function (u) {
+      if (!isValidUid(u.toObject().uid)) badIds.push(u._id);
+    });
+    if (badIds.length === 0) {
+      return res.json({ ok: true, removed: 0, msg: '没有需要清理的历史遗留账号' });
+    }
+    await User.deleteMany({ _id: { $in: badIds } });
+    return res.json({ ok: true, removed: badIds.length, msg: '已清理 ' + badIds.length + ' 个历史遗留账号' });
+  } catch (e) {
+    return res.json({ ok: false, msg: '清理失败：' + (e && e.message) });
+  }
+});
+
 /* 管理后台：删除账号（同时清掉会话和搜索历史，交易流水保留用于对账） */
 app.post('/api/admin/delete-user', async (req, res) => {
   const { uid } = req.body;
-const clean = String(uid || '').trim();
-  if (!clean) return res.json({ ok: false, msg: '用户ID不能为空' });
+  const clean = String(uid || '').trim();
+  if (!isValidUid(clean)) return res.json({ ok: false, msg: '用户ID无效' });
   const u = await User.findOne({ uid: clean });
   if (!u) return res.json({ ok: false, msg: '用户不存在' });
   await User.deleteOne({ uid: clean });
@@ -341,7 +369,7 @@ app.post('/api/admin/set-avatar', async (req, res) => {
   u.avatar = profile.avatar;
   u.avatarFallback = profile.avatarFallback || '';
   if (profile.nickname) u.nickname = profile.nickname;
-await u.save();
+  await u.save();
   return res.json({ ok: true, msg: '头像已更新', user: u });
 });
 
@@ -374,7 +402,7 @@ app.post('/api/user/login', async (req, res) => {
     await user.save();
   }else{
     //已经激活，判断是否过期（非永久卡）
-if(user.expireTime && new Date() > new Date(user.expireTime)){
+    if(user.expireTime && new Date() > new Date(user.expireTime)){
       return res.json({ok:false,msg:"账号已过期，请联系管理员"});
     }
   }
@@ -412,7 +440,7 @@ app.post('/api/user/info', async (req, res) => {
   if (!user) return res.json({ ok: false, msg: '用户不存在' });
   //校验账号过期状态
   if(user.isActivated && user.expireTime && new Date() > new Date(user.expireTime)){
-return res.json({ok:false,msg:"账号已过期，请联系管理员"});
+    return res.json({ok:false,msg:"账号已过期，请联系管理员"});
   }
   const s = await Session.findOne({ uid,clientId });
   if (!s || s.clientId !== clientId || s.kicked) {
@@ -447,7 +475,7 @@ app.get('/api/user/lookup/:uid', async (req, res) => {
         avatar: user.avatar,
         avatarFallback: user.avatarFallback || '',
         balance: user.balance
-}
+      }
     });
   }
   // 2. 外部接口（真实头像 / 昵称 / ID）
@@ -485,7 +513,7 @@ app.post('/api/user/pay', async (req, res) => {
   const s = await Session.findOne({uid,clientId});
   if (!s || s.clientId !== clientId || s.kicked) {
     return res.json({ ok: false, msg: 'Session expired' });
-}
+  }
   const payAmount = Number(amount);
   if (!payAmount || payAmount <= 0) {
     return res.json({ ok: false, msg: 'Invalid amount' });
@@ -519,7 +547,7 @@ app.post('/api/user/pay', async (req, res) => {
 /* 我的交易流水 */
 app.get('/api/user/records/:uid', async (req, res) => {
   const list = await Record.find({uid:req.params.uid}).sort({timestamp:-1}).lean();
-res.json({ ok: true, list });
+  res.json({ ok: true, list });
 });
 
 /* 搜索历史 */
@@ -552,7 +580,7 @@ app.get('/api/user/search-history/:uid', async (req, res) => {
 app.get('/api/source-check', async (req, res) => {
   const tag = String(req.query.tag || 'rose').replace(/^\$+/g, '');
   const start = Date.now();
-const data = await fetchProfileOnce(tag);
+  const data = await fetchProfileOnce(tag);
   res.json({
     ok: !!data,
     upstream: AVATAR_API_BASE,
