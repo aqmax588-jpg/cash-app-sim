@@ -54,7 +54,7 @@ h1 {
 }
 .field input, .field select {
   padding: 11px 13px;
-border-radius: 9px;
+  border-radius: 9px;
   border: 1px solid #2a2a2a;
   background: #0f0f0f;
   color: #fff;
@@ -120,7 +120,7 @@ table {
   margin-top: 10px;
 }
 th, td {
-border-bottom: 1px solid #242424;
+  border-bottom: 1px solid #242424;
   padding: 10px 8px;
   text-align: left;
   vertical-align: middle;
@@ -179,7 +179,7 @@ td input,td select {
   background: #0f0f0f;
   color: #fff;
   font-size: 13px;
-width: 100px;
+  width: 100px;
   outline: none;
 }
 .mono {
@@ -226,7 +226,7 @@ width: 100px;
     <div class="desc">当前管理员：admin</div>
     <div class="tabs">
       <button class="tab active" id="tabUserBtn" onclick="switchTab('user')">用户管理</button>
-<button class="tab" id="tabLogBtn" onclick="switchTab('log')">交易流水</button>
+      <button class="tab" id="tabLogBtn" onclick="switchTab('log')">交易流水</button>
     </div>
     <div class="tab-content active" id="userTab">
       <div class="panel">
@@ -249,8 +249,10 @@ width: 100px;
         <div class="desc" style="margin:10px 0 0;">新账号余额自动随机 1,500,000 ~ 2,000,000 美元；账号【首次登录】才开始计时生效</div>
       </div>
       <div class="panel">
-<h2>用户列表</h2>
+        <h2>用户列表</h2>
         <div id="userTableWrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><div class="empty">加载中...</div></div>
+        <button class="gray" style="margin-top:12px;" onclick="cleanInvalid()">清理历史遗留账号</button>
+        <div class="desc" style="margin:8px 0 0;font-size:12px;">只清理没有有效 Cash ID 的旧数据（这类账号本来也无法登录），正常账号不受影响</div>
       </div>
     </div>
     <div class="tab-content" id="logTab">
@@ -276,7 +278,7 @@ function switchTab(tab) {
 async function adminLogin() {
   const username = document.getElementById('adminUser').value.trim();
   const password = document.getElementById('adminPwd').value.trim();
-const msg = document.getElementById('loginMsg');
+  const msg = document.getElementById('loginMsg');
   msg.classList.remove('err');
   msg.innerText = '';
   try {
@@ -305,7 +307,7 @@ async function addUser() {
   const nickname = document.getElementById('newNick').value.trim();
   const cashtag = document.getElementById('newCashtag').value.trim();
   const cardType = document.getElementById('newCardType').value;
-const msg = document.getElementById('addMsg');
+  const msg = document.getElementById('addMsg');
   msg.classList.remove('err');
   msg.innerText = '';
   if (!uid || !password) {
@@ -364,7 +366,7 @@ function copyText(text) {
     return;
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
-navigator.clipboard.writeText(text).then(function () {
+    navigator.clipboard.writeText(text).then(function () {
       tip('已复制');
     }).catch(function () {
       alert('复制失败，请手动记录：' + text);
@@ -396,7 +398,7 @@ function tip(text) {
     el = document.createElement('div');
     el.id = 'copyTip';
     el.style.cssText = 'position:fixed;left:50%;top:18px;transform:translateX(-50%);background:#00d54b;color:#000;padding:8px 16px;border-radius:10px;font-size:13px;font-weight:600;z-index:99;opacity:0;transition:opacity .2s;';
-document.body.appendChild(el);
+    document.body.appendChild(el);
   }
   el.textContent = text;
   el.style.opacity = '1';
@@ -421,7 +423,7 @@ function cardStatus(u) {
   if (left <= 0) return '<span style="color:#ff453a;">已过期</span>';
   const days = Math.ceil(left / 86400000);
   const hours = Math.ceil(left / 3600000);
-const txt = days >= 1 ? ('剩' + days + '天') : ('剩' + hours + '小时');
+  const txt = days >= 1 ? ('剩' + days + '天') : ('剩' + hours + '小时');
   return '<span style="color:#00D54F;">生效中</span><div style="color:#8a8a8e;font-size:11px;">' + txt + '</div>';
 }
 async function loadUsers() {
@@ -444,7 +446,7 @@ async function loadUsers() {
           '<td>' + u.uid + '<div style="color:#8a8a8e;font-size:11px;margin-top:2px;">创建 ' + fmtDT(u.createdAt) + '</div></td>' +
           '<td>' + (u.password || '') + '</td>' +
           '<td>$' + Number(u.balance).toLocaleString('en-US') + '</td>' +
-'<td><select id="card_'+i+'">'+
+          '<td><select id="card_'+i+'">'+
               '<option value="day" '+(u.cardType==='day'?'selected':'')+'>天卡</option>'+
               '<option value="month" '+(u.cardType==='month'?'selected':'')+'>月卡</option>'+
               '<option value="quarter" '+(u.cardType==='quarter'?'selected':'')+'>季卡</option>'+
@@ -455,7 +457,7 @@ async function loadUsers() {
           '<td>' + fmtDT(u.activateTime) + '</td>' +
           '<td>' + (u.cardType === 'permanent' ? '永久' : fmtDT(u.expireTime)) + '</td>' +
           '<td><input id="tag_' + i + '" placeholder="cashtag"><button class="gray" style="margin-left:6px;" onclick="setAvatar(\'' + u.uid + '\',' + i + ')">设头像</button></td>' +
-'<td class="actions">' +
+          '<td class="actions">' +
             '<button class="copy" onclick="copyField(' + i + ')">复制账号密码</button>' +
             '<input type="number" id="bal_' + i + '" value="' + u.balance + '">' +
             '<button onclick="setBalance(\'' + u.uid + '\',' + i + ')">改余额</button>' +
@@ -470,6 +472,20 @@ async function loadUsers() {
     wrap.innerHTML = '<div class="empty">加载失败，请刷新</div>';
   }
 }
+/* 清理历史遗留账号：删掉没有有效 Cash ID 的旧数据 */
+async function cleanInvalid() {
+  if (!confirm('将清理所有没有有效 Cash ID 的历史遗留账号。\n这类账号本来也无法登录，正常账号不受影响。确定清理？')) {
+    return;
+  }
+  try {
+    const res = await fetch(API + '/admin/clean-invalid', { method: 'POST' });
+    const data = await res.json();
+    alert(data.msg || '清理完成');
+  } catch (e) {
+    alert('清理失败，请检查网络后重试');
+  }
+  loadUsers();
+}
 async function setCardType(uid,i){
   const sel = document.getElementById("card_"+i);
   const cardType = sel.value;
@@ -483,7 +499,7 @@ async function setCardType(uid,i){
 }
 async function setBalance(uid, i) {
   const val = document.getElementById('bal_' + i).value;
-await fetch(API + '/admin/set-balance', {
+  await fetch(API + '/admin/set-balance', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ uid: uid, newBalance: val })
@@ -520,7 +536,7 @@ async function deleteUser(uid) {
   }
   try {
     const res = await fetch(API + '/admin/delete-user', {
-method: 'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: uid })
     });
