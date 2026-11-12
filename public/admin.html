@@ -54,7 +54,7 @@ h1 {
 }
 .field input, .field select {
   padding: 11px 13px;
-  border-radius: 9px;
+border-radius: 9px;
   border: 1px solid #2a2a2a;
   background: #0f0f0f;
   color: #fff;
@@ -120,7 +120,7 @@ table {
   margin-top: 10px;
 }
 th, td {
-  border-bottom: 1px solid #242424;
+border-bottom: 1px solid #242424;
   padding: 10px 8px;
   text-align: left;
   vertical-align: middle;
@@ -179,7 +179,7 @@ td input,td select {
   background: #0f0f0f;
   color: #fff;
   font-size: 13px;
-  width: 100px;
+width: 100px;
   outline: none;
 }
 .mono {
@@ -226,7 +226,7 @@ td input,td select {
     <div class="desc">当前管理员：admin</div>
     <div class="tabs">
       <button class="tab active" id="tabUserBtn" onclick="switchTab('user')">用户管理</button>
-      <button class="tab" id="tabLogBtn" onclick="switchTab('log')">交易流水</button>
+<button class="tab" id="tabLogBtn" onclick="switchTab('log')">交易流水</button>
     </div>
     <div class="tab-content active" id="userTab">
       <div class="panel">
@@ -249,7 +249,7 @@ td input,td select {
         <div class="desc" style="margin:10px 0 0;">新账号余额自动随机 1,500,000 ~ 2,000,000 美元；账号【首次登录】才开始计时生效</div>
       </div>
       <div class="panel">
-        <h2>用户列表</h2>
+<h2>用户列表</h2>
         <div id="userTableWrap"><div class="empty">加载中...</div></div>
       </div>
     </div>
@@ -277,7 +277,7 @@ async function adminLogin() {
   const username = document.getElementById('adminUser').value.trim();
   const password = document.getElementById('adminPwd').value.trim();
   const msg = document.getElementById('loginMsg');
-  msg.classList.remove('err');
+msg.classList.remove('err');
   msg.innerText = '';
   try {
     const res = await fetch(API + '/admin/login', {
@@ -306,7 +306,7 @@ async function addUser() {
   const cashtag = document.getElementById('newCashtag').value.trim();
   const cardType = document.getElementById('newCardType').value;
   const msg = document.getElementById('addMsg');
-  msg.classList.remove('err');
+msg.classList.remove('err');
   msg.innerText = '';
   if (!uid || !password) {
     msg.classList.add('err');
@@ -339,7 +339,7 @@ async function addUser() {
 }
 /* ---------- 创建成功后的账号信息卡片 ---------- */
 function showCreated(u) {
-  var box = document.getElementById('addMsg');
+var box = document.getElementById('addMsg');
   box.classList.remove('err');
   box.innerHTML =
     '<div>创建成功，账号信息如下</div>' +
@@ -365,7 +365,7 @@ function copyText(text) {
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function () {
-      tip('已复制');
+tip('已复制');
     }).catch(function () {
       alert('复制失败，请手动记录：' + text);
     });
@@ -397,7 +397,7 @@ function tip(text) {
     el.id = 'copyTip';
     el.style.cssText = 'position:fixed;left:50%;top:18px;transform:translateX(-50%);background:#00d54b;color:#000;padding:8px 16px;border-radius:10px;font-size:13px;font-weight:600;z-index:99;opacity:0;transition:opacity .2s;';
     document.body.appendChild(el);
-  }
+}
   el.textContent = text;
   el.style.opacity = '1';
   clearTimeout(el.__t);
@@ -427,7 +427,7 @@ async function loadUsers() {
           '<td><select id="card_'+i+'">'+
               '<option value="day" '+(u.cardType==='day'?'selected':'')+'>天卡</option>'+
               '<option value="month" '+(u.cardType==='month'?'selected':'')+'>月卡</option>'+
-              '<option value="quarter" '+(u.cardType==='quarter'?'selected':'')+'>季卡</option>'+
+'<option value="quarter" '+(u.cardType==='quarter'?'selected':'')+'>季卡</option>'+
               '<option value="year" '+(u.cardType==='year'?'selected':'')+'>年卡</option>'+
               '<option value="permanent" '+(u.cardType==='permanent'?'selected':'')+'>永久卡</option>'+
           '</select><button class="gray" style="margin-left:4px;" onclick="setCardType(\''+u.uid+'\','+i+')">修改</button></td>'+
@@ -437,7 +437,8 @@ async function loadUsers() {
             '<input type="number" id="bal_' + i + '" value="' + u.balance + '">' +
             '<button onclick="setBalance(\'' + u.uid + '\',' + i + ')">改余额</button>' +
             '<button class="red" onclick="kickUser(\'' + u.uid + '\')">踢下线</button>' +
-          '</td>' +
+            '<button class="red" onclick="deleteUser(\'' + u.uid + '\')">删除账号</button>' +
+'</td>' +
         '</tr>';
     });
     html += '</tbody></table>';
@@ -474,7 +475,7 @@ async function setAvatar(uid, i) {
   }
   const res = await fetch(API + '/admin/set-avatar', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ uid: uid, cashtag: tag })
   });
   const data = await res.json();
@@ -488,6 +489,24 @@ async function kickUser(uid) {
     body: JSON.stringify({ uid: uid })
   });
   alert('已踢下线');
+}
+/* 删除账号：二次确认，删除后清掉会话与搜索历史，交易流水保留 */
+async function deleteUser(uid) {
+  if (!confirm('确定删除账号 ' + uid + ' ？\n删除后该账号无法登录，其会话和搜索历史一并清除，交易流水保留。')) {
+    return;
+  }
+  try {
+    const res = await fetch(API + '/admin/delete-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: uid })
+    });
+    const data = await res.json();
+    alert(data.msg || '操作失败');
+  } catch (e) {
+    alert('删除失败，请检查网络后重试');
+  }
+  loadUsers();
 }
 async function loadLogs() {
   const wrap = document.getElementById('logTableWrap');
